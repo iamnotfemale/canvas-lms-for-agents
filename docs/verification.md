@@ -9,6 +9,7 @@
 - Skill Creator `quick_validate.py`: 통과.
 - `claude plugin validate plugin/.claude-plugin/plugin.json`: manifest 오류/경고 0. 공개 디렉터리 제출용 아이콘은 미포함이며 별도 디렉터리 진단에는 비차단 아이콘 경고가 있다.
 - `npm audit --omit=dev`: 알려진 취약점 0개. 이 결과가 취약점이 없다는 보증은 아니다.
+- GitHub Actions [run 40094249559](https://github.com/iamnotfemale/canvas-lms-for-agents/actions/runs/40094249559): 코드 커밋 `deedb59`에서 Ubuntu·Windows 각각 깨끗한 `npm ci`, 패키지 검사, 22개 테스트 모두 통과.
 
 회귀 범위: 동일 자료 동시 다운로드 및 프로세스 간 잠금, 죽은 프로세스 잠금 복구, 캐시 재시작 재사용, 계정 격리, 내용 해시 중복 제거, 원본 변경·손상 복구, 권한 취소 차단, 불완전/HTML 다운로드 제거, 조건부 304, 용량 정리, 오래된 임시파일 정리, 페이지네이션·루프 차단, 파일 API 제한 시 모듈 검색, 과목 모호성, 주차/장/자료번호 구분, LTI 자격 증명 경계, 저장소 리다이렉트 차단, 목록 실패/동시 요청, 긴 공지 상세 읽기, 전체 PDF 추출·실제 PNG 렌더링, SDK MCP 도구 호출·입력 검증, 실제 stdio 실행, 설치 manifest의 작업 폴더 독립성.
 

@@ -44,83 +44,63 @@ git --version
 
 **토큰 방식의 범위:** 이 저장소는 요청에 따라 로컬 개인 토큰 방식으로 구현했습니다. [Canvas 공식 인증 문서](https://developerdocs.instructure.com/services/canvas/oauth2/file.oauth)는 본인 개발 테스트에 수동 토큰을 설명하며, 다른 사용자에게 수동 토큰 입력을 요구하는 앱은 정책에 맞지 않고 다중 사용자 앱은 OAuth를 사용해야 한다고 명시합니다. 코드 공개가 학교나 Canvas의 서비스 배포 승인을 의미하지 않습니다. 여러 학생을 대상으로 서비스화할 때에는 학교의 인증·이용 조건과 OAuth 전환을 먼저 해결해야 합니다.
 
-## 2. 내려받기와 토큰 설정
+## 2. Codex에 설치
 
-Windows PowerShell 예시입니다. macOS/Linux에서도 원하는 폴더에서 같은 Git/npm 명령을 실행할 수 있습니다.
-
-```powershell
-New-Item -ItemType Directory -Force D:\Dev\Projects | Out-Null
-Set-Location D:\Dev\Projects
-git clone https://github.com/iamnotfemale/canvas-lms-for-agents.git
-Set-Location canvas-lms-for-agents
-npm ci --cache D:\Dev\Cache\npm
-npm run setup
-```
-
-macOS/Linux:
-
-```bash
-git clone https://github.com/iamnotfemale/canvas-lms-for-agents.git
-cd canvas-lms-for-agents
-npm ci
-npm run setup
-```
-
-1. 브라우저에서 [고려대 Canvas](https://canvas.korea.ac.kr)에 로그인합니다.
-2. 계정 → 설정 → 승인된 통합/새 액세스 토큰 메뉴에서 본인 테스트용 토큰을 만듭니다. 학교 설정에 따라 이 메뉴가 없으면 관리자에게 사용 가능 여부를 확인해야 합니다.
-3. `npm run setup`의 **로컬 터미널 입력란**에 붙여 넣습니다. 입력은 화면에 표시되지 않습니다.
-4. 연결 확인 후 자료 저장 폴더를 지정합니다. Windows에서는 `D:\Dev\AppData\canvas-lms-for-agents\cache`처럼 여유 있는 드라이브를 권장합니다.
-
-**토큰을 AI 채팅, GitHub 이슈, 스크린샷에 붙여 넣지 마세요.** 토큰은 `~/.config/canvas-lms-for-agents/config.json`에 저장합니다. Unix 파일 권한 0600/디렉터리 0700을 사용하고 Windows에서는 설정 폴더의 상속 ACL을 제거하고 현재 사용자에게 권한을 줍니다. 암호화 저장소는 아니므로 공용 OS 계정·공유 폴더·공개 백업에 두지 마세요.
-
-설정에는 runtimeRoot도 저장됩니다. 플러그인 관리자는 가벼운 `plugin/`만 복사하고 런타임·의존성은 이 clone에서 사용합니다. **설치 후 clone을 삭제하지 마세요.** 옮겼다면 새 위치에서 `npm ci`와 `npm run setup`을 다시 실행합니다. 처음 설치 후에는 자동 npm 설치나 업데이트를 실행하지 않습니다.
-
-## 3. Codex에 설치
-
-저장소 루트에서 실행합니다. `codex plugin` 명령이 없는 버전이라면 Codex를 업데이트하거나 아래 MCP 대체 설치를 사용하세요.
+Node.js 24 이상(npm 포함), Git, 로컬 Codex가 준비되어 있으면 아래 두 명령만 실행합니다. 저장소 clone, `npm ci`, `npm run setup`은 필요 없습니다.
 
 ```powershell
-codex plugin marketplace add .
+codex plugin marketplace add iamnotfemale/canvas-lms-for-agents
 codex plugin add canvas-lms-for-agents@canvas-lms-for-agents
-codex plugin list --marketplace canvas-lms-for-agents
 ```
 
-Codex 앱을 다시 시작하고 **새 로컬 채팅**에서 `@`를 눌러 **Canvas LMS for Agents**를 선택합니다. 설치 목록은 보이는데 현재 채팅에서 도구를 못 찾는다면 MCP 연결이 새로 로드되는 새 채팅을 사용하세요.
+Codex 앱을 다시 시작하고 새 로컬 채팅에서 `@` → **Canvas LMS for Agents**를 선택합니다.
 
 ```text
-@Canvas LMS for Agents 연결 상태 확인해줘
 @Canvas LMS for Agents 내 수강 과목 보여줘
-@Canvas LMS for Agents [과목명] PDF 3~5 학습 도와줘
 ```
 
-환경에 따라 스킬 호출은 `$canvas-lms`로도 사용할 수 있습니다. `@` 메뉴 노출 방식은 앱 버전에 따라 다릅니다. 이 설치는 **사용자 로컬 마켓플레이스 설치**이며 OpenAI 공개 디렉터리에 등록된 제품이라는 뜻은 아닙니다.
+**첫 사용 시 로컬 브라우저에 토큰 입력 화면이 열립니다.** 설치 화면에서 연결 설정을 선택해도 같은 화면으로 안내합니다.
 
-### 구버전 Codex의 MCP 대체 설치
+1. 화면의 **고려대 Canvas 설정 열기**를 눌러 로그인합니다.
+2. 계정 설정 → 승인된 통합 → 새 액세스 토큰을 만들어 복사합니다. 학교가 메뉴를 제공하지 않으면 학교 관리자에게 확인하세요.
+3. 로컬 화면의 **Canvas 개인 액세스 토큰** 입력란에 붙여 넣고 **연결하고 시작하기**를 누릅니다.
+4. 연결 완료 후 같은 채팅으로 돌아가 요청을 이어갑니다. 토큰 설정 때문에 앱을 다시 시작할 필요는 없습니다.
 
-플러그인 명령을 사용할 수 없으면 MCP 도구만 직접 연결할 수 있습니다.
+브라우저가 자동으로 열리지 않으면 에이전트가 제공한 로컬 연결 링크를 엽니다. 링크는 10분 후 만료되므로 만료되었다면 “LMS 연결 설정 다시 열어줘”라고 요청하세요. 토큰은 채팅에 입력하지 않습니다.
 
-```powershell
-codex mcp add canvas-lms -- node D:/Dev/Projects/canvas-lms-for-agents/plugin/scripts/launch.mjs
-```
+이미 토큰을 설정했다면 그대로 사용합니다. 토큰 교체도 “LMS 연결 설정 다시 열어줘”로 할 수 있습니다. 설정은 `~/.config/canvas-lms-for-agents/config.json`에 저장하며 Unix 0600/0700, Windows 사용자 ACL로 보호합니다. 암호화 저장소는 아닙니다.
 
-자신의 clone 절대 경로로 바꾸세요. 이 방식은 MCP만 추가하므로 `@` 플러그인 선택과 학습 스킬 자동 로딩은 보장하지 않습니다. `plugin/skills/canvas-lms/SKILL.md`의 학습 절차를 채팅에서 읽도록 요청할 수 있습니다. 정식 플러그인 설치와 MCP 대체 설치를 동시에 하면 도구가 중복되므로 한 가지만 사용하세요.
+`codex plugin` 명령이 없다면 Codex를 업데이트하세요. 이 설치는 GitHub 마켓플레이스 설치이며 OpenAI 공개 디렉터리 등록을 뜻하지 않습니다. 설치했지만 현재 채팅에 도구가 없으면 새 로컬 채팅에서 호출하세요.
 
-## 4. Claude Code에 설치
-
-2단계의 `npm ci`, `npm run setup`을 마친 뒤 저장소 루트에서:
+## 3. Claude Code에 설치
 
 ```bash
-claude plugin marketplace add .
+claude plugin marketplace add iamnotfemale/canvas-lms-for-agents
 claude plugin install canvas-lms-for-agents@canvas-lms-for-agents --scope user
 ```
 
-Claude Code를 다시 시작한 다음:
+Claude Code를 다시 시작하고 호출합니다.
 
 ```text
 /canvas-lms-for-agents:canvas-lms 인지 PDF 3~5 학습 도와줘
 ```
 
-자연어로 “고려대 LMS 공지 확인해줘”라고 요청해도 스킬을 선택할 수 있습니다. Codex와 **같은 OS 사용자·설정 파일**을 사용하면 토큰과 다운로드를 공유합니다. 다른 컴퓨터/원격 실행 환경에는 파일이 자동 공유되지 않습니다.
+최초 사용 시 같은 로컬 토큰 화면이 열립니다. Codex와 같은 OS 사용자라면 설정과 다운로드를 공유하므로 다시 입력할 필요가 없습니다. 다른 컴퓨터나 원격 실행 환경에는 파일이 자동 공유되지 않습니다.
+
+## 4. PDF 저장 위치
+
+첫 연결 시 실제 바탕화면에 `Canvas LMS` 폴더를 만듭니다. 자료를 요청하면 학기·과목별로 저장합니다.
+
+```text
+바탕화면/Canvas LMS/
+  2026년 2학기/
+    과목명 - 01분반/
+      Chapter13. Vectors functions.pdf
+```
+
+Windows에서는 OneDrive 등으로 옮긴 실제 바탕화면 위치도 따릅니다. 학기를 확인할 수 없으면 `학기 미확인` 폴더를 사용합니다. 파일명에서 OS가 금지한 문자만 정리하고, 같은 이름의 다른 내용이나 직접 수정한 PDF가 있으면 구분자를 붙여 보존합니다.
+
+이 폴더는 **보관용**입니다. 분석 캐시를 지워도 PDF는 남습니다. 원본과 버전이 같고 LMS 접근권이 있으면 보관용 PDF로 캐시를 복원하여 다시 다운로드하지 않습니다. 직접 필기한 파일이 분석 캐시까지 바꾸지 않도록 원본 캐시와 보관본은 별도 복사본이며 그만큼 디스크를 사용합니다.
 
 ## 5. Gmail과 같이 사용하기
 
@@ -135,7 +115,11 @@ Gmail 기능을 이 플러그인에 중복 구현하지 않았습니다. 사용�
 
 ## 캐시와 속도
 
-브라우저 `localStorage`가 아닌 **로컬 파일 캐시**입니다.
+브라우저 `localStorage`가 아닌 **로컬 파일 캐시**입니다. 아래 `original.pdf`는 내부 분석 원본이고, 사용자가 여는 파일은 위 바탕화면 폴더의 실제 파일명입니다.
+
+기본 내부 경로는 Windows에서 `D:/Dev`가 있으면 `D:/Dev/AppData/canvas-lms-for-agents`, 없으면 `%LOCALAPPDATA%/canvas-lms-for-agents`입니다. macOS/Linux는 `~/.local/share/canvas-lms-for-agents`(또는 `XDG_DATA_HOME`)를 사용합니다.
+
+플러그인의 기본 실행 코드는 패키지에 포함됩니다. **PDF를 처음 분석할 때만** PDF 엔진을 자동 설치하며 인터넷과 npm이 필요합니다. 고정된 lockfile로 설치하고 설치 스크립트는 실행하지 않습니다. 최초 준비에는 추가 시간이 걸리지만 이후에는 설치된 엔진을 재사용합니다. PDF 다운로드와 공지 조회에는 이 설치가 필요하지 않습니다.
 
 ```text
 지정한 캐시 폴더/
@@ -159,7 +143,7 @@ Gmail 기능을 이 플러그인에 중복 구현하지 않았습니다. 사용�
 - **제한:** PDF 파일당 최대 100 MB, 전체 텍스트 색인은 최대 1,500쪽. 페이지 미리보기 응답은 최대 120쪽이며 전체 목록은 로컬 JSON에 있습니다. 페이지 읽기는 한 번에 8쪽, 이미지 긴 변은 최대 1,800 px입니다.
 - **낮은 지연:** 선택한 과목만 조회, 목록 짧은 메모리 캐시, 최대 3개 모듈 동시 조회, PDF/이미지 라이브러리 지연 로딩, 전체 텍스트 재사용. 전체 수강자료를 시작할 때 선제 다운로드하지 않습니다.
 
-관리 명령:
+개발 clone에서 사용할 수 있는 관리 명령:
 
 ```bash
 npm run cache -- status
@@ -169,7 +153,7 @@ npm run cache -- clear --yes
 
 `prune`은 한도를 넘은 오래된 자료와 24시간 이상 지난 다운로드 임시파일을 정리합니다. `clear --yes`는 **현재 인증된 계정의 캐시만** 삭제합니다. 개인이 따로 작성한 학습 노트를 캐시 폴더에 저장하지 마세요. 인증할 수 없는 오래된 계정의 캐시는 앱을 종료하고 지정한 캐시 폴더에서 직접 관리할 수 있습니다.
 
-설정 파일의 `maxCacheMB`, `cacheDir`, `aliases`를 바꿀 수 있습니다. 토큰이 든 파일 전체를 채팅에 보여주지 마세요. 예를 들어 aliases에 `"인지": "12345"`를 넣으면 실제 수강목록에서 그 과목 ID로 해석합니다. `12345`는 예시이며 본인의 `list_courses` 결과를 사용해야 합니다. 변경 후 MCP를 재시작합니다.
+설정 파일의 `maxCacheMB`, `cacheDir`, `libraryDir`, `aliases`를 바꿀 수 있습니다. 토큰이 든 파일 전체를 채팅에 보여주지 마세요. 예를 들어 aliases에 `"인지": "12345"`를 넣으면 실제 수강목록에서 그 과목 ID로 해석합니다. `12345`는 예시이며 본인의 `list_courses` 결과를 사용해야 합니다. 변경 후 MCP를 재시작합니다.
 
 고급 실행 환경에서는 `CANVAS_TOKEN`, `CANVAS_AGENT_CACHE_DIR`, `CANVAS_AGENT_CONFIG_DIR` 환경변수를 사용할 수 있습니다. 보통은 setup이 더 간단하며 토큰을 셸 명령 인수에 직접 적지 않는 편이 좋습니다.
 
@@ -178,7 +162,8 @@ npm run cache -- clear --yes
 | 상황 | 확인 방법 |
 |---|---|
 | `node`를 못 찾음 | Node 24+ 설치 후 앱을 완전히 다시 시작해 PATH 반영 |
-| `npm run setup` 필요 오류 | clone에서 설치/설정 완료 여부, clone 이동/삭제 여부 확인 |
+| 이전 버전의 `npm run setup` 오류 | 아래 업데이트로 0.2.0 이상 설치 후 새 채팅에서 호출 |
+| PDF 엔진 자동 설치 실패 | 인터넷·npm·폴더 쓰기 권한 확인 후 같은 요청 재시도 |
 | 연결 401 | `connection_status`로 토큰 확인. 파일 목록만 401이면 토큰 전체 만료로 단정하지 않음 |
 | 파일 목록 접근 제한 | 모듈·LearningX 경로로 계속 찾음. warnings에 실패 경로 표시 |
 | 출석 메뉴 없음 | 해당 과목의 LearningX 메뉴와 학교 원문 확인. 결석으로 추정하지 않음 |
@@ -189,29 +174,37 @@ npm run cache -- clear --yes
 
 ## 업데이트·제거
 
-```bash
-git pull --ff-only
-npm ci
-npm test
-```
-
-로컬 마켓플레이스에서 변경된 플러그인 패키지를 다시 설치합니다.
+사용하는 앱의 명령만 실행합니다. Codex:
 
 ```bash
+codex plugin marketplace upgrade canvas-lms-for-agents
 codex plugin remove canvas-lms-for-agents@canvas-lms-for-agents
 codex plugin add canvas-lms-for-agents@canvas-lms-for-agents
+```
+
+Claude Code:
+
+```bash
+claude plugin marketplace update canvas-lms-for-agents
 claude plugin update canvas-lms-for-agents@canvas-lms-for-agents
 ```
 
-사용하는 앱의 명령만 실행하세요. 플러그인 제거는 설정 토큰·PDF 캐시를 지우지 않습니다. 완전히 제거하려면 앱을 종료하고 설정 폴더와 자신이 지정한 캐시 폴더를 삭제하고, 학교에서 해당 개인 토큰을 폐기하세요.
+업데이트 후 앱을 다시 시작합니다. 0.1.0에서 로컬 clone을 마켓플레이스로 등록했다면 그 clone에서 먼저 `git pull --ff-only`를 실행한 뒤 다시 설치합니다. 0.2.0 실행에는 개발 clone이나 `runtimeRoot`가 필요 없습니다. 기존 토큰과 캐시는 유지되며 기존 PDF도 다음 요청 때 재다운로드 없이 바탕화면에 보관합니다.
+
+플러그인 제거만으로 토큰·보관 PDF·내부 캐시는 삭제하지 않습니다. 완전히 제거하려면 앱을 종료하고 설정 폴더와 자료·내부 캐시 폴더를 정리한 뒤 학교에서 토큰을 폐기하세요.
 
 ## 개발·검증
 
 ```bash
+git clone https://github.com/iamnotfemale/canvas-lms-for-agents.git
+cd canvas-lms-for-agents
 npm ci
+npm run build
 npm test
 npm run check
 ```
+
+`src/` 수정 후 `npm run build`로 `plugin/dist/server.mjs`를 재생성하고 함께 커밋합니다. CLI 토큰 설정이 필요하면 개발 clone에서 `npm run setup`을 선택적으로 사용할 수 있습니다.
 
 실계정 검증은 본인 설정 후 명시적으로 실행합니다. 학교 데이터 원문을 출력하지 않고 성공 여부·개수·시간만 출력합니다. 첫 4개 과목 중 PDF가 있는 과목 하나를 골라 실제 PDF 한 개를 내려받아 분석합니다.
 

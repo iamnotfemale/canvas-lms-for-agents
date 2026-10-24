@@ -91,3 +91,22 @@ test('announcements paginate and detailed reads expose a complete long body', as
   const detail = await client.overview('1', 'announcements', false, 0, '1');
   assert.equal(detail.items.length, 1); assert.equal(detail.items[0].text.length, 2200); assert.equal(detail.items[0].truncated, false);
 });
+
+test('link-only board files require a fresh readable attachment; locks still deny', async () => {
+  let attached = true, locked = false, read = true, postReads = 0;
+  const client = new Canvas('fake', { fetcher: async url => {
+    const p = new URL(url).pathname;
+    if (p.endsWith('/users/self')) return jsonResponse({ id: 10 });
+    if (p === '/api/v1/courses') return jsonResponse([{ id: 1, name: 'Course' }]);
+    if (p.endsWith('/files/3')) return jsonResponse({ id: 3, hidden_for_user: true, locked_for_user: locked, permissions: { read }, filename: 'Chapter13.pdf', url: CANVAS + '/files/3/download' });
+    if (p.endsWith('/posts/5')) { postReads++; return jsonResponse({ title: 'Materials', attachments: attached ? [{ canvas_file_id: 3, filename: 'Chapter13.pdf' }] : [] }); }
+    throw Error('Unexpected request');
+  } });
+  client.memo.values.set('session:1:boards', { expires: Infinity, value: new Map([['xn_api_token', 'test']]) });
+  await assert.rejects(client.resolve('file:1:3'), /첨부 목록/);
+  await client.boards('1', '4', '5');
+  assert.ok((await client.resolve('file:1:3')).url); assert.equal(postReads, 2);
+  attached = false; await assert.rejects(client.resolve('file:1:3'), /더 이상/);
+  attached = true; locked = true; await assert.rejects(client.resolve('file:1:3'), /잠긴/);
+  locked = false; read = false; await assert.rejects(client.resolve('file:1:3'), /잠긴/);
+});

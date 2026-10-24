@@ -5,7 +5,7 @@ import { FileCache } from '../src/cache.js';
 import { indexPdf, readPdf, renderPage } from '../src/pdf.js';
 
 const config = await loadConfig(), client = new Canvas(config.token, { aliases: config.aliases });
-const account = await client.identity(true), cache = new FileCache(config.cacheDir, account, config.maxBytes);
+const account = await client.identity(true), cache = new FileCache(config.cacheDir, account, config.maxBytes, config.libraryDir);
 const results = {};
 const time = async (key, fn) => { const start = performance.now(); try { const result = await fn(); results[key] = { ok: true, ms: Math.round(performance.now() - start), ...result }; } catch (e) { results[key] = { ok: false, ms: Math.round(performance.now() - start), status: e.status, message: e.safe ? e.message : 'Failed; details suppressed' }; } console.log(JSON.stringify({ [key]: results[key] })); };
 const courses = await client.courses();

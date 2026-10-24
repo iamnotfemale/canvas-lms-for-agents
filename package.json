@@ -1,6 +1,6 @@
 {
   "name": "canvas-lms-for-agents",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Korea University Canvas and LearningX tools for Codex and Claude Code",
   "private": true,
   "type": "module",
@@ -12,6 +12,7 @@
     "setup": "node scripts/setup.mjs",
     "test": "node --test test/*.test.js",
     "check": "node scripts/check.mjs",
+    "build": "node scripts/build.mjs",
     "cache": "node scripts/cache.mjs"
   },
   "dependencies": {
@@ -20,5 +21,8 @@
     "htmlparser2": "12.0.0",
     "pdfjs-dist": "6.4.299",
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

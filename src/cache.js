@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, unlink, stat, readdir, rm, open } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile, rename, unlink, stat, readdir, rm, open, copyFile, lstat, link } from 'node:fs/promises';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from './util.js';
+import { safeName, courseFolder } from './paths.js';
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export async function atomicJson(path, value) {
@@ -51,11 +52,68 @@ async function sizeOf(dir) {
   return bytes;
 }
 export class FileCache {
-  constructor(root, accountId, maxBytes = 1024 ** 3) {
+  constructor(root, accountId, maxBytes = 1024 ** 3, libraryDir) {
     this.root = join(root, hash(`canvas.korea.ac.kr:${accountId}`).slice(0, 32));
     this.maxBytes = maxBytes;
+    this.libraryDir = libraryDir && resolve(libraryDir);
+    this.accountKey = hash(`canvas.korea.ac.kr:${accountId}`).slice(0, 32);
   }
-  async init() { await mkdir(join(this.root, 'objects'), { recursive: true, mode: 0o700 }); }
+  async init() {
+    await mkdir(join(this.root, 'objects'), { recursive: true, mode: 0o700 });
+    if (this.libraryDir) await mkdir(this.libraryDir, { recursive: true, mode: 0o700 });
+  }
+  libraryIndex() { return json(join(this.libraryDir, '.canvas-library.json'), {}); }
+  libraryKey(resourceId) { return `${this.accountKey}:${resourceId}`; }
+  async libraryPath(parts) {
+    let path = this.libraryDir;
+    for (const part of parts) {
+      path = resolve(path, part);
+      const rel = relative(this.libraryDir, path);
+      if (rel.startsWith('..') || isAbsolute(rel)) throw fail('자료 보관 경로를 확인할 수 없습니다.');
+      const info = await lstat(path).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
+      if (info?.isSymbolicLink()) throw fail('자료 보관 폴더의 바로가기 경로에는 저장하지 않습니다.');
+    }
+    return path;
+  }
+  async savedCopy(resourceId) {
+    if (!this.libraryDir) return null;
+    const row = (await this.libraryIndex())[this.libraryKey(resourceId)];
+    if (!row || !Array.isArray(row.parts) || row.parts.length !== 3 || row.parts.some(p => typeof p !== 'string' || /[\\/]/.test(p))) return null;
+    const path = await this.libraryPath(row.parts);
+    const bytes = await readFile(path).catch(e => { if (e.code !== 'ENOENT') throw e; return null; });
+    return bytes && hash(bytes) === row.sha ? { ...row, path } : null;
+  }
+  async publish(resourceId, source, row, cachePath) {
+    if (!this.libraryDir) return cachePath;
+    return locked(join(this.libraryDir, '.library.lock'), async () => {
+      const old = await this.savedCopy(resourceId);
+      const parts = [safeName(source.term, '학기 미확인', 40), courseFolder(source.courseName)];
+      let name = safeName(source.title, '강의자료.pdf');
+      if (!/\.pdf$/i.test(name)) name += '.pdf';
+      const dir = await this.libraryPath(parts); await mkdir(dir, { recursive: true, mode: 0o700 });
+      let target;
+      if (old?.sha === row.sha && old.parts[0] === parts[0] && old.parts[1] === parts[1]) target = old.path;
+      for (let n = 0; !target; n++) {
+        const candidate = n === 0 ? name : `${name.replace(/\.pdf$/i, '')} (${hash(this.libraryKey(resourceId)).slice(0, 8)}-${row.sha.slice(0, 8)}${n > 1 ? '-' + n : ''}).pdf`;
+        const path = await this.libraryPath([...parts, candidate]);
+        const temp = join(dir, `.${randomUUID()}.part`);
+        try {
+          await copyFile(cachePath, temp);
+          // Publish a complete independent copy without replacing user edits.
+          await link(temp, path); target = path;
+        }
+        catch (e) {
+          if (e.code !== 'EEXIST') throw e;
+          if (hash(await readFile(path)) === row.sha) target = path;
+        }
+        finally { await unlink(temp).catch(() => {}); }
+      }
+      const index = await this.libraryIndex();
+      index[this.libraryKey(resourceId)] = { ...row, parts: relative(this.libraryDir, target).split(/[\\/]/) };
+      await atomicJson(join(this.libraryDir, '.canvas-library.json'), index);
+      return target;
+    });
+  }
   async index() { return json(join(this.root, 'index.json'), {}); }
   objectDir(sha) {
     if (!/^[a-f0-9]{64}$/.test(sha)) throw fail('캐시 식별자가 손상되었습니다.');
@@ -64,7 +122,7 @@ export class FileCache {
   async stats() {
     await this.init();
     const index = await this.index();
-    return { root: this.root, resources: Object.keys(index).length, uniquePdfs: new Set(Object.values(index).map(r => r.sha)).size, bytes: await sizeOf(this.root), maxBytes: this.maxBytes };
+    return { root: this.root, libraryDir: this.libraryDir, resources: Object.keys(index).length, uniquePdfs: new Set(Object.values(index).map(r => r.sha)).size, bytes: await sizeOf(this.root), maxBytes: this.maxBytes };
   }
   async maintain(keep, clear = false) {
     const index = await this.index();
@@ -101,10 +159,18 @@ export class FileCache {
       // Authorization is checked even for a cache hit; revoked LMS access fails closed.
       const source = await client.resolve(resourceId);
       let previous = (await this.index())[resourceId];
+      const saved = await this.savedCopy(resourceId);
+      previous ||= saved;
       if (previous) {
         const path = join(this.objectDir(previous.sha), 'original.pdf');
         const s = await stat(path).catch(() => null);
-        if (!s || s.size !== previous.bytes || hash(await readFile(path)) !== previous.sha) previous = null;
+        if (!s || s.size !== previous.bytes || hash(await readFile(path)) !== previous.sha) {
+          if (saved?.sha === previous.sha) await locked(join(this.root, 'store.lock'), async () => {
+            await mkdir(this.objectDir(previous.sha), { recursive: true, mode: 0o700 });
+            await copyFile(saved.path, path);
+          });
+          else previous = null;
+        }
       }
       let hit = previous && ((source.version && source.version === previous.version) || (!source.version && previous.checkedAt > Date.now() - 120000));
       let record = previous, downloaded = false;
@@ -149,7 +215,10 @@ export class FileCache {
       if (!downloaded) await locked(join(this.root, 'store.lock'), async () => {
         await this.saveRecord(resourceId, { ...record, version: source.version, checkedAt: Date.now(), usedAt: Date.now(), title: source.title });
       });
-      return { resourceId, sha: record.sha, path: join(this.objectDir(record.sha), 'original.pdf'), bytes: record.bytes, cacheHit: !downloaded, title: source.title, sourceUrl: source.sourceUrl };
+      const cachePath = join(this.objectDir(record.sha), 'original.pdf');
+      const row = { ...record, version: source.version, checkedAt: Date.now(), usedAt: Date.now(), title: source.title };
+      const path = await locked(join(this.root, 'store.lock'), () => this.publish(resourceId, source, row, cachePath));
+      return { resourceId, sha: record.sha, path, bytes: record.bytes, cacheHit: !downloaded, title: source.title, sourceUrl: source.sourceUrl };
     });
   }
   async saveRecord(resourceId, row) {

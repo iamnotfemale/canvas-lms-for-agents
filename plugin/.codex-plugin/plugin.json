@@ -1,13 +1,14 @@
 {
   "name": "canvas-lms-for-agents",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "고려대 Canvas·LearningX 자료 학습, 공지·과제·출석 조회",
   "author": { "name": "iamnotfemale" },
   "repository": "https://github.com/iamnotfemale/canvas-lms-for-agents",
   "license": "MIT",
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./.mcp.codex.json",
   "requires_local_executor": true,
+  "extensions": { "com.openai": { "onboardingSkill": "./skills/setup/SKILL.md" } },
   "interface": {
     "displayName": "Canvas LMS for Agents",
     "shortDescription": "고려대 수업 자료와 학습을 한 대화에서",

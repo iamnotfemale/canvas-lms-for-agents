@@ -2,7 +2,7 @@
   "mcpServers": {
     "canvas-lms": {
       "command": "node",
-      "args": ["--input-type=module", "-e", "import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import{pathToFileURL}from'node:url';try{const c=JSON.parse(fs.readFileSync(path.join(process.env.CANVAS_AGENT_CONFIG_DIR||path.join(os.homedir(),'.config','canvas-lms-for-agents'),'config.json'),'utf8'));const m=await import(pathToFileURL(path.join(c.runtimeRoot,'src','server.js')).href);await m.start();}catch{process.stderr.write('Canvas LMS for Agents: clone에서 npm ci와 npm run setup을 먼저 실행하세요.\\n');process.exit(1);}"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/server.mjs"]
     }
   }
 }

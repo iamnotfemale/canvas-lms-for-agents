@@ -1,6 +1,6 @@
 {
   "name": "canvas-lms-for-agents",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "고려대 Canvas·LearningX PDF 학습과 공지·과제·출석 조회",
   "author": { "name": "iamnotfemale" },
   "repository": "https://github.com/iamnotfemale/canvas-lms-for-agents",

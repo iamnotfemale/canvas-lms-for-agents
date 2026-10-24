@@ -17,6 +17,9 @@ for (const path of ['plugin/.codex-plugin/plugin.json', 'plugin/.claude-plugin/p
   await readFile(`plugin/${manifest.mcpServers}`);
 }
 for (const path of ['plugin/.mcp.json', '.agents/plugins/marketplace.json', '.claude-plugin/marketplace.json']) JSON.parse(await readFile(path, 'utf8'));
+const codexMcp = JSON.parse(await readFile('plugin/.mcp.codex.json', 'utf8'));
+// Older Codex hosts do not expand PLUGIN_ROOT; keep the packaged fallback version aligned.
+assert.ok(codexMcp.mcpServers['canvas-lms'].args.join(' ').includes(`/canvas-lms-for-agents/${pkg.version}`));
 const skill = await readFile('plugin/skills/canvas-lms/SKILL.md', 'utf8');
 assert.match(skill, /^---\nname: canvas-lms\ndescription: .+\n---/);
 console.log('Syntax and plugin package checks passed.');

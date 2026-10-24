@@ -20,6 +20,7 @@ export function filterMaterials(items, { query = '', week, chapter, documentNumb
 }
 export class Canvas {
   memo = new Memo();
+  linkedFiles = new Map();
   constructor(token, { fetcher = fetch, aliases = {} } = {}) { this.token = token; this.fetcher = fetcher; this.aliases = aliases; }
   async get(path, ttl = 60000, fresh = false) {
     return this.memo.get(path, ttl, async () => {
@@ -91,17 +92,25 @@ export class Canvas {
     if (!match) throw fail('자료 검색에서 받은 resourceId를 사용하세요.');
     const [, kind, course, resource] = match;
     await this.identity(true);
-    await this.course(course, true);
+    const courseInfo = await this.course(course, true);
+    const location = { term: courseInfo.term, courseName: courseInfo.name };
     if (kind === 'lx') {
       const item = (await this.weekly(course, true)).find(i => i.itemId === resource);
       if (!item || item.locked) throw fail('현재 열람할 수 없는 주차학습 자료입니다.', 403);
-      return { ...await learningPdf(this, item), resourceId, sourceUrl: item.url };
+      return { ...await learningPdf(this, item), ...location, resourceId, sourceUrl: item.url };
     }
     const file = await this.get(`/courses/${course}/files/${resource}`, 0, true);
-    if (file.locked_for_user || file.hidden_for_user || file.locked) throw fail('학교에서 잠긴 자료입니다.', 403);
+    if (file.locked_for_user || file.locked || file.permissions?.read === false) throw fail('학교에서 잠긴 자료입니다.', 403);
+    if (file.hidden_for_user) {
+      const link = this.linkedFiles.get(resourceId);
+      if (!link) throw fail('게시판 글의 첨부 목록을 먼저 조회해 자료 접근 경로를 확인하세요.', 403);
+      // Hidden means link-only; verify the original readable post again, never bypass a lock.
+      const post = await lxGet(this, course, 'boards', `boards/${link.boardId}/posts/${link.postId}`, true);
+      if (!(post.attachments || []).some(a => String(a.canvas_file_id) === resource)) throw fail('게시판에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
+    }
     if (!(file['content-type'] === 'application/pdf' || /\.pdf$/i.test(file.filename || file.display_name))) throw fail('현재 다운로드·학습은 PDF 자료를 지원합니다.');
     safeUrl(file.url, [CANVAS, LEARNINGX, 'https://kr.object.gov-ncloudstorage.com']);
-    return { resourceId, url: file.url, version: file.updated_at ? `${file.updated_at}:${file.size ?? ''}` : null, title: file.display_name || file.filename, sourceUrl: `${CANVAS}/courses/${course}/files/${resource}` };
+    return { ...location, resourceId, url: file.url, version: file.updated_at ? `${file.updated_at}:${file.size ?? ''}` : null, title: file.display_name || file.filename, sourceUrl: `${CANVAS}/courses/${course}/files/${resource}` };
   }
   async openDownload(source, headers = {}) {
     let url = source.url;
@@ -165,6 +174,8 @@ export class Canvas {
     const value = await lxGet(this, cid, 'boards', path);
     if (!boardId) return { course, boards: value.map(b => ({ id: String(b.id), title: b.title })) };
     if (!postId) return { course, posts: (value.items || []).map(p => ({ id: String(p.id), title: p.title, postedAt: p.created_at, attachmentCount: p.attachment_count })), pagination: value.pagination };
-    return { course, title: value.title, ...clipped(plain(value.content), 30000), postedAt: value.created_at, url: `${CANVAS}/courses/${cid}`, attachments: (value.attachments || []).filter(a => /^\d+$/.test(String(a.canvas_file_id))).map(a => ({ resourceId: `file:${cid}:${a.canvas_file_id}`, title: a.filename })) };
+    const attachments = (value.attachments || []).filter(a => /^\d+$/.test(String(a.canvas_file_id))).map(a => ({ resourceId: `file:${cid}:${a.canvas_file_id}`, title: a.filename }));
+    for (const attachment of attachments) this.linkedFiles.set(attachment.resourceId, { boardId, postId });
+    return { course, title: value.title, ...clipped(plain(value.content), 30000), postedAt: value.created_at, url: `${CANVAS}/courses/${cid}`, attachments };
   }
 }

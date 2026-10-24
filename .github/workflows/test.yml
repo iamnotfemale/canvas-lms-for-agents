@@ -15,5 +15,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- plugin/dist
       - run: npm run check
       - run: npm test

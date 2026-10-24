@@ -3,6 +3,6 @@
   "metadata": { "description": "고려대 Canvas·LearningX 학습 플러그인" },
   "owner": { "name": "iamnotfemale" },
   "plugins": [
-    { "name": "canvas-lms-for-agents", "source": "./plugin", "description": "고려대 LMS 자료 학습·공지·출석 조회", "version": "0.1.0" }
+    { "name": "canvas-lms-for-agents", "source": "./plugin", "description": "고려대 LMS 자료 학습·공지·출석 조회", "version": "0.2.0" }
   ]
 }

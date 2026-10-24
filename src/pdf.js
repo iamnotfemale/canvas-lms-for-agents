@@ -1,24 +1,24 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
+import { pdfRequire } from './pdf-dependencies.js';
 import { atomicJson } from './cache.js';
 import { fail, clipped } from './util.js';
 
 let runtime;
 async function pdfRuntime() {
   if (!runtime) runtime = (async () => {
-    const canvas = await import('@napi-rs/canvas');
+    const require = await pdfRequire();
+    const canvas = require('@napi-rs/canvas');
     globalThis.DOMMatrix ||= canvas.DOMMatrix;
     globalThis.ImageData ||= canvas.ImageData;
     globalThis.Path2D ||= canvas.Path2D;
-    return { canvas, pdfjs: await import('pdfjs-dist/legacy/build/pdf.mjs') };
-  })();
+    return { canvas, require, pdfjs: await import(pathToFileURL(require.resolve('pdfjs-dist/legacy/build/pdf.mjs')).href) };
+  })().catch(error => { runtime = undefined; throw error; });
   return runtime;
 }
 async function openPdf(path) {
-  const { pdfjs } = await pdfRuntime();
-  const require = createRequire(import.meta.url);
+  const { pdfjs, require } = await pdfRuntime();
   const base = pathToFileURL(require.resolve('pdfjs-dist/package.json').replace(/package\.json$/, '')).href;
   return pdfjs.getDocument({ data: new Uint8Array(await readFile(path)), isEvalSupported: false, useSystemFonts: true,
     cMapUrl: `${base}cmaps/`, cMapPacked: true, standardFontDataUrl: `${base}standard_fonts/`, verbosity: 0 }).promise;

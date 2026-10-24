@@ -6,18 +6,21 @@ import { Canvas } from './canvas.js';
 import { FileCache } from './cache.js';
 import { readPdf, renderPage, indexPdf } from './pdf.js';
 import { errorInfo, fail } from './util.js';
+import { beginSetup } from './onboarding.js';
 
 const text = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
-export function createServer({ service } = {}) {
-  const server = new McpServer({ name: 'canvas-lms-for-agents', version: '0.1.0' });
+export function createServer({ service, clientFactory = config => new Canvas(config.token, { aliases: config.aliases }) } = {}) {
+  const server = new McpServer({ name: 'canvas-lms-for-agents', version: '0.2.0' });
   let active = service;
   async function services() {
     if (!active) {
       let config;
-      try { config = await loadConfig(); } catch (e) { throw fail(e.message); }
-      const client = new Canvas(config.token, { aliases: config.aliases });
-      const account = await client.identity();
-      active = { client, cache: new FileCache(config.cacheDir, account, config.maxBytes) };
+      try { config = await loadConfig(); } catch (e) { if (e.code === 'SETUP_REQUIRED') throw e; throw fail(e.message); }
+      const client = clientFactory(config);
+      let account;
+      try { account = await client.identity(); } catch (e) { if (e.status === 401) e.code = 'SETUP_REQUIRED'; throw e; }
+      active = { client, cache: new FileCache(config.cacheDir, account, config.maxBytes, config.libraryDir) };
+      await active.cache.init();
     }
     return active;
   }
@@ -27,14 +30,23 @@ export function createServer({ service } = {}) {
       annotations: { readOnlyHint: !localWrite, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async args => {
       try { return await handler(args, await services()); }
-      catch (e) { return { isError: true, ...text(errorInfo(e)) }; }
+      catch (e) {
+        if (e.code === 'SETUP_REQUIRED') return text(await beginSetup(process.env.CANVAS_AGENT_NO_BROWSER !== '1'));
+        return { isError: true, ...text(errorInfo(e)) };
+      }
     });
   }
   const course = z.string().min(1).max(200).describe('수강 과목 ID 또는 정식 이름/설정한 약칭. 모호하면 list_courses로 선택.');
   const resource = z.string().regex(/^(file|lx):\d{1,30}:\d{1,30}$/).describe('find_materials가 반환한 resourceId. URL이나 로컬 경로를 입력하지 마세요.');
   const fresh = z.boolean().optional().describe('true면 목록 캐시를 건너뛰고 갱신.');
+  server.registerTool('setup_connection', { description:'최초 연결 또는 만료된 토큰 교체를 위해 로컬 브라우저 입력 화면을 엽니다. 토큰을 도구 인수나 채팅에 입력하지 마세요.', inputSchema:{}, annotations:{ readOnlyHint:false, destructiveHint:false, openWorldHint:false } }, async () => {
+    active = undefined;
+    return text(await beginSetup(process.env.CANVAS_AGENT_NO_BROWSER !== '1'));
+  });
   tool('connection_status', '고려대 Canvas 토큰 연결과 캐시 상태를 진단합니다. 토큰이나 개인정보는 반환하지 않습니다.', {}, async (_, { client, cache }) => {
-    await client.identity(true); return text({ connected: true, school: '고려대학교', timezone: 'Asia/Seoul', cache: await cache.stats() });
+    try { await client.identity(true); }
+    catch (e) { if (e.status === 401) { active = undefined; e.code = 'SETUP_REQUIRED'; } throw e; }
+    return text({ connected: true, school: '고려대학교', timezone: 'Asia/Seoul', cache: await cache.stats() });
   });
   tool('list_courses', '수강 과목 목록에서 한국어 이름·약칭 후보를 찾습니다. 인지 등 모호한 약칭은 실제 목록으로 확인하세요.', { query: z.string().max(200).optional(), fresh }, async (a, { client }) => text({ courses: await client.courses(a.query, a.fresh) }));
   tool('find_materials', '과목 파일·모듈·LearningX를 함께 검색합니다. 3주차, 3장, PDF3은 다른 조건입니다. 실패한 자료 경로는 warnings로 반환합니다.', {

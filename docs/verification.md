@@ -1,5 +1,19 @@
 # 검증 기록 — 2026-10-24
 
+## 0.2.0 — 첫 사용 설정과 바탕화면 보관
+
+- `npm run build`, `npm test` 32개, `npm run check`, `npm audit --omit=dev` 통과(알려진 취약점 0).
+- 개발 clone/node_modules/설정이 없는 별도 복사 패키지의 stdio 시작, 도구 11개 및 로컬 설정 화면 응답 검증.
+- 합성 토큰으로 Origin 차단, 학교 검증 실패 시 기존 설정 보존, 토큰 HTML 미반영, 같은 MCP 세션 연결 재개, 만료 토큰 교체 검증.
+- Windows 실계정: 개발 clone 밖에 복사한 설치 번들에서 PDF 엔진을 자동 설치하고 실제 PDF 읽기·PNG 렌더링 성공. 시작부터 각각 약 8.8초·9.5초(한 번의 cold 측정, 네트워크 환경에 따라 다름).
+- 실제 기존 PDF 3개를 재다운로드 없이 바탕화면 학기/과목/실제파일명으로 보관. 자동 테스트에서 동시 요청, 파일명 충돌, 사용자 수정본 보존, 캐시 삭제 후 보관본 복원을 검증.
+- 사용자 Codex에 0.2.0 설치 완료. 실제 설치 폴더의 manifest를 공식 SDK로 실행하여 11개 도구·연결·수강목록 조회 성공. SDK 검증은 호스트의 경로 placeholder를 검사 스크립트가 치환한다.
+- 읽을 수 있는 게시글의 첨부를 파일 목록의 hidden_for_user와 혼동하던 버그 수정. fresh 게시글에서 첨부 존재를 재확인하며 locked/locked_for_user/read=false 및 삭제된 첨부는 계속 차단한다.
+- Codex 실제 app-server의 `mcpServerStatus/list`에서도 0.2.0 서버와 11개 도구 발견, toolsError=null 확인. 현재 Codex가 PLUGIN_ROOT를 치환하지 않는 경우를 위한 설치 캐시 경로 fallback을 추가했고, 양쪽 manifest 및 legacy fallback을 독립 복사 패키지로 테스트했다.
+- 아래 0.1.0 기록은 이전 검증이다. 0.2.0의 @ 메뉴/설정 버튼 직접 UI 조작과 macOS 실사용은 미검증이다.
+
+## 0.1.0 이전 검증
+
 환경: Windows, Node 24.15.0. 합성 테스트와 실계정 검증을 구분한다. 토큰·과목명·사용자 ID·학교 원문·실제 파일은 공개 저장소에 포함하지 않았다.
 
 ## 자동 검사
@@ -39,7 +53,7 @@
 - Codex CLI `0.164.0-alpha.11.1`: 로컬 marketplace add → plugin add → enabled=true 확인.
 - Codex가 복사한 실제 plugin 패키지의 MCP manifest로 공식 MCP SDK stdio 연결: 도구 10개, 연결 성공, 수강 9과목 조회.
 - Claude Code `2.1.309`: 별도 설정 디렉터리에서 marketplace add/install 성공. 양쪽이 사용하는 동일 MCP manifest의 실행을 검증했다.
-- 의존성은 개발 clone에 유지하며 설치되는 `plugin/`에는 node_modules·토큰·캐시·학교 자료가 없다.
+- 0.1.0은 의존성을 개발 clone에 유지했다. 0.2.0은 기본 런타임 번들과 첫 분석 시 PDF 엔진 자동 설치로 대체했다. 설치되는 `plugin/`에 토큰·캐시·학교 자료를 포함하지 않는다.
 
 ## 아직 검증하지 않은 범위
 

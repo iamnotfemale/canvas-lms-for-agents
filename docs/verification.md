@@ -3,6 +3,7 @@
 ## 0.2.0 — 첫 사용 설정과 바탕화면 보관
 
 - `npm run build`, `npm test` 32개, `npm run check`, `npm audit --omit=dev` 통과(알려진 취약점 0).
+- GitHub Actions [40099971686](https://github.com/iamnotfemale/canvas-lms-for-agents/actions/runs/40099971686): 코드 커밋 `c919423`에서 Ubuntu·Windows 모두 깨끗한 설치, 번들 재생성과 일치 검사, 패키지 검사, 32개 테스트 통과.
 - 개발 clone/node_modules/설정이 없는 별도 복사 패키지의 stdio 시작, 도구 11개 및 로컬 설정 화면 응답 검증.
 - 합성 토큰으로 Origin 차단, 학교 검증 실패 시 기존 설정 보존, 토큰 HTML 미반영, 같은 MCP 세션 연결 재개, 만료 토큰 교체 검증.
 - Windows 실계정: 개발 clone 밖에 복사한 설치 번들에서 PDF 엔진을 자동 설치하고 실제 PDF 읽기·PNG 렌더링 성공. 시작부터 각각 약 8.8초·9.5초(한 번의 cold 측정, 네트워크 환경에 따라 다름).

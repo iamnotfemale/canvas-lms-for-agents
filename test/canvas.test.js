@@ -43,7 +43,7 @@ test('file listing denied still returns module PDFs and warning', async () => {
     throw Error('Unexpected request');
   } });
   const result = await client.materials('인지', { week: 5 });
-  assert.equal(result.items[0].resourceId, 'file:1:3'); assert.equal(result.warnings.length, 2);
+  assert.equal(result.items[0].resourceId, 'file:1:3'); assert.equal(result.warnings.length, 3);
 });
 test('unknown attendance is not absence; explicit disabled attendance differs', () => {
   assert.equal(attendanceLabel(undefined, true), '확인 불가');

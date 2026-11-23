@@ -23,11 +23,12 @@ export async function ensureVideoDirectory(directory) {
   }
   return full;
 }
-export async function publishVideoFile(record,directory,title) {
+export async function publishVideoFile(record,directory,title,{collision='number'}={}) {
   const folder=await ensureVideoDirectory(directory),name=safeName(title,'강의영상.mp4',120);
   for(let n=0;n<1000;n++) {
     const ext=parse(name).ext||'.mp4',stem=ext===parse(name).ext?name.slice(0,-ext.length):name;
-    const path=join(folder,n?`${stem} (${n})${ext}`:name);
+    const suffix=collision==='hash'?`${record.sha.slice(0,8)}${n>1?'-'+n:''}`:String(n);
+    const path=join(folder,n?`${stem} (${suffix})${ext}`:name);
     const info=await lstat(path).catch(e=>{if(e.code!=='ENOENT')throw e;return null;});
     if(info) {if(info.isFile()&&info.size===record.bytes&&await fileHash(path)===record.sha)return {...record,path,reused:true};continue;}
     const temp=join(folder,`.${randomUUID()}.part`);
@@ -58,7 +59,7 @@ const strongEtag=value=>value&&!value.startsWith('W/')?value:null;
 const validator=record=>strongEtag(record?.etag)||record?.lastModified;
 
 // Persist only validators, hashes and local paths: source URLs and credentials stay in memory.
-export async function transferVideoAsset(client,url,work,key,{previous=null,version=null,range=null,budget,mp4=false,revalidate=false}={}) {
+export async function transferVideoAsset(client,url,work,key,{previous=null,version=null,range=null,budget,mp4=false,revalidate=false,requestHeaders={}}={}) {
   videoUrl(url);await mkdir(work,{recursive:true,mode:0o700});
   const partial=join(work,key+'.part'),statePath=join(work,key+'.json');
   const sourceKey=hash(new URL(url).origin+new URL(url).pathname+JSON.stringify(range));
@@ -81,8 +82,8 @@ export async function transferVideoAsset(client,url,work,key,{previous=null,vers
   else if(previous?.etag)headers['If-None-Match']=previous.etag;
   else if(previous?.lastModified)headers['If-Modified-Since']=previous.lastModified;
   let response;
-  try {response=await client.openDownload({url},headers,15*60*1000,budget.signal);}
-  catch(error){if(error.status===416&&resume){await unlink(partial).catch(()=>{});await unlink(statePath).catch(()=>{});return transferVideoAsset(client,url,work,key,{previous:null,version,range,budget,mp4});}throw error;}
+  try {response=await client.openDownload({url,headers:requestHeaders},headers,15*60*1000,budget.signal);}
+  catch(error){if(error.status===416&&resume){await unlink(partial).catch(()=>{});await unlink(statePath).catch(()=>{});return transferVideoAsset(client,url,work,key,{previous:null,version,range,budget,mp4,requestHeaders});}throw error;}
   if(response.status===304&&previous){await response.body?.cancel();budget.used+=previous.bytes;if(budget.used>budget.max)throw fail('영상 다운로드 용량 한도를 초과했습니다.');return {...previous,version,reused:true};}
   if(response.status===304){await response.body?.cancel();throw fail('영상의 변경 확인 응답이 올바르지 않습니다.');}
   let start=resume,total;
@@ -106,6 +107,7 @@ export async function transferVideoAsset(client,url,work,key,{previous=null,vers
     for await(const chunk of response.body) {
       bytes+=chunk.length;if(budget.used+bytes>budget.max)throw fail('영상 다운로드 용량 한도를 초과했습니다.');
       await file.writeFile(chunk);digest.update(chunk);
+      budget.onBytes?.(budget.used+bytes,total);
       if(bytes-checkpoint>=16*1024*1024){await file.sync();await atomicJson(statePath,{...record,bytes,partialSha:digest.copy().digest('hex')});checkpoint=bytes;}
     }
     await file.sync();
@@ -120,7 +122,7 @@ export async function transferVideoAsset(client,url,work,key,{previous=null,vers
   try {if(mp4)await validateMp4(partial);}
   catch(error){await unlink(partial).catch(()=>{});await unlink(statePath).catch(()=>{});throw error;}
   const sha=digest.digest('hex');budget.used+=bytes;
-  const result={path:partial,bytes,sha,sourceKey,etag:record.etag,lastModified:record.lastModified,version,reused:false};
+  const result={path:partial,bytes,sha,sourceKey,etag:record.etag,lastModified:record.lastModified,version,reused:false,resumedFrom:start};
   await atomicJson(statePath,{...record,...result,partialSha:sha});
   return result;
 }

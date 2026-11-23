@@ -10,7 +10,7 @@ import {MEDIA} from '../src/util.js';
 import {FileCache} from '../src/cache.js';
 import {mp4Fixture,tsFixture} from './video-fixtures.js';
 async function fixture(t,fetcher){const root=await mkdtemp(join(tmpdir(),'canvas-video-'));t.after(()=>rm(root,{recursive:true,force:true}));const cache=new FileCache(join(root,'cache'),'account-1',1024**3,join(root,'library'));
- const client=new Canvas('synthetic-school-token',{fetcher});client.allowed=true;client.version='v1';client.resolveVideo=async()=>{if(!client.allowed)throw Error('revoked');return {title:'12주차 강의',term:'2026년 2학기',courseName:'미적분',week:12,version:client.version,sourceUrl:'https://canvas.korea.ac.kr/courses/1/modules/items/7',parts:[{url:MEDIA+'/lecture.mp4?token=synthetic-signed',format:'mp4'}]};};return {root,client,cache};}
+ const client=new Canvas('synthetic-school-token',{fetcher});client.allowed=true;client.version='v1';client.resolveVideo=async()=>{if(!client.allowed)throw Object.assign(Error('revoked'),{safe:true,status:403});return {title:'12주차 강의',term:'2026년 2학기',courseName:'미적분',week:12,version:client.version,sourceUrl:'https://canvas.korea.ac.kr/courses/1/modules/items/7',parts:[{url:MEDIA+'/lecture.mp4?token=synthetic-signed',format:'mp4'}]};};return {root,client,cache};}
 const videoResponse=(bytes=mp4Fixture(),headers={})=>new Response(bytes,{headers:{'content-type':'video/mp4','content-length':String(bytes.length),etag:'"video-v1"',...headers}});
 test('MP4 saves to course/week or chosen folder; reuse, edited files, concurrency and account access',async t=>{
  let downloads=0;const {root,client,cache}=await fixture(t,async(url,options)=>{downloads++;assert.equal(options.method,undefined);assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);return videoResponse();});
@@ -18,7 +18,7 @@ test('MP4 saves to course/week or chosen folder; reuse, edited files, concurrenc
  assert.ok(!JSON.stringify(first).includes('synthetic-signed'));
  const saved=await downloadVideo(client,cache,'lx:1:7',{directory:join(root,'chosen')});assert.ok(saved.path.startsWith(join(root,'chosen')));assert.equal(downloads,1);
  await writeFile(saved.path,'user edit');const next=await downloadVideo(client,cache,'lx:1:7',{directory:join(root,'chosen')});assert.notEqual(next.path,saved.path);assert.equal(await readFile(saved.path,'utf8'),'user edit');assert.equal(downloads,2);
- client.allowed=false;await assert.rejects(downloadVideo(client,cache,'lx:1:7'),/revoked/);assert.equal(downloads,2);
+ client.allowed=false;await assert.rejects(downloadVideo(client,cache,'lx:1:7'),{code:'VIDEO_SOURCE_ACCESS_DENIED'});assert.equal(downloads,2);
 });
 test('unknown-version videos revalidate by ETag without exposing source URLs in local records',async t=>{
  let downloads=0;const {client,cache}=await fixture(t,async(url,options)=>{downloads++;if(options.headers['If-None-Match'])return new Response(null,{status:304});return videoResponse();});client.version=null;

@@ -1,4 +1,5 @@
-import { CANVAS, LEARNINGX, MEDIA, id, safeUrl, publicUrl, request, Memo, mapLimit, plain, clipped, fail, errorInfo, canvasAttachments } from './util.js';
+import { CANVAS, LEARNINGX, MEDIA, id, safeUrl, publicUrl, request, Memo, mapLimit, plain, clipped, fail, errorInfo, canvasAttachments, DOWNLOAD_ORIGINS, mediaRequestHeaders } from './util.js';
+import { boardVideos, boardVideoPattern, announcementVideos, announcementVideoPattern, assertReadablePost } from './board-videos.js';
 import { learningVideo } from './video-source.js';
 import { lxGet, learningItem, learningPdf, attendanceLabel } from './learningx.js';
 
@@ -22,6 +23,7 @@ export function filterMaterials(items, { query = '', week, chapter, documentNumb
 export class Canvas {
   memo = new Memo();
   linkedFiles = new Map();
+  sourceStatuses = new Map();
   constructor(token, { fetcher = fetch, aliases = {} } = {}) { this.token = token; this.fetcher = fetcher; this.aliases = aliases; }
   async get(path, ttl = 60000, fresh = false) {
     return this.memo.get(path, ttl, async () => {
@@ -66,15 +68,21 @@ export class Canvas {
   async materials(courseQuery, filters = {}, fresh = false, offset = 0) {
     const course = await this.course(courseQuery);
     const cid = course.id;
-    const [files, modules, weekly] = await Promise.allSettled([
+    const {includeBoards=true,boardId,boardPage=1,boardPostOffset=0,...materialFilters}=filters;
+    const [files, modules, weekly, boards] = await Promise.allSettled([
       this.get(`/courses/${cid}/files`, 120000, fresh),
       this.get(`/courses/${cid}/modules`, 120000, fresh).then(ms => mapLimit(ms, 3, async m => {
         const items = await this.get(`/courses/${cid}/modules/${id(m.id)}/items`, 120000, fresh);
         return items.filter(i => i.type === 'File').map(i => ({ resourceId: `file:${cid}:${id(i.content_id)}`, courseId: cid, title: i.title, module: m.name, week: numbered(m.name, 'week'), pdf: /\.pdf$/i.test(i.title), video:/\.(mp4|m4v)$/i.test(i.title), url: publicUrl(i.html_url) }));
       })).then(ms => ms.flat()),
       this.weekly(cid, fresh),
+      includeBoards?this.boardMaterials(course,{boardId,page:boardPage,postOffset:boardPostOffset,fresh}):Promise.resolve({items:[],warnings:[],scopes:[],skipped:true}),
     ]);
-    const warnings = [files, modules, weekly].flatMap((r, i) => r.status === 'rejected' ? [{ source: ['files', 'modules', 'learningx'][i], ...errorInfo(r.reason) }] : []);
+    const routes={files,modules,learningx:weekly,boards};
+    const sources=Object.fromEntries(Object.entries(routes).map(([name,result])=>[name,result.status==='fulfilled'?{status:result.value?.skipped?'skipped':result.value?.warnings?.length||result.value?.truncated?'partial':'ok'}:{...errorInfo(result.reason),status:'error',httpStatus:result.reason.status,scope:name,requiresTokenReplacement:false}]));
+    const warnings=Object.entries(sources).filter(([,value])=>value.status==='error').map(([source,value])=>({source,...value,message:value.httpStatus===401||value.httpStatus===403?'이 공급 경로에 접근할 수 없습니다. 전체 연결 만료를 뜻하지 않습니다.':value.message}));
+    for(const value of Object.values(sources))if([401,403].includes(value.httpStatus))value.message='이 공급 경로에 접근할 수 없습니다. 전체 연결 만료를 뜻하지 않습니다.';
+    this.sourceStatuses.set(cid,sources);if(this.sourceStatuses.size>100)this.sourceStatuses.delete(this.sourceStatuses.keys().next().value);
     const found = new Map();
     if (files.status === 'fulfilled') for (const f of files.value) found.set(`file:${cid}:${id(f.id)}`, {
       resourceId: `file:${cid}:${f.id}`, courseId: cid, title: f.display_name || f.filename,
@@ -86,10 +94,47 @@ export class Canvas {
     if (weekly.status === 'fulfilled') for (const f of weekly.value) {
       if (f.resourceId.startsWith('file:') || f.pdf || f.video) found.set(f.resourceId, { ...found.get(f.resourceId), ...f, viewer: undefined });
     }
-    const results = filterMaterials([...found.values()], filters);
-    return { course, items: results.slice(offset, offset + 100), total: results.length, nextOffset: offset + 100 < results.length ? offset + 100 : null, warnings, checkedAt: new Date().toISOString() };
+    if(boards.status==='fulfilled'){for(const item of boards.value.items)found.set(item.resourceId,item);warnings.push(...boards.value.warnings);}
+    const results = filterMaterials([...found.values()], materialFilters);
+    return { course, items: results.slice(offset, offset + 100), total: results.length, nextOffset: offset + 100 < results.length ? offset + 100 : null, warnings, sources, boardSearch:boards.status==='fulfilled'?{scopes:boards.value.scopes,pendingBoards:boards.value.pendingBoards,totalBoards:boards.value.totalBoards,scannedPosts:boards.value.scannedPosts||0,truncated:!!boards.value.truncated}:null, checkedAt: new Date().toISOString() };
   }
-  async resolveVideo(resourceId) { return this.resolve(resourceId, 'video'); }
+  async boardMaterials(course,{boardId,page=1,maxPosts=40,postOffset=0,fresh=false}={}) {
+    const listing=boardId?[{id:id(boardId)}]:(await this.boards(course.id,undefined,undefined,1,fresh)).boards;
+    const ordered=[...listing].sort((a,b)=>Number(/강의|자료|영상|백업/.test(b.title||''))-Number(/강의|자료|영상|백업/.test(a.title||'')));
+    const selected=ordered.slice(0,10),jobs=[],scopes=[],warnings=[];
+    for(const board of selected){
+      try {
+        const result=await this.boards(course.id,board.id,undefined,page,fresh);
+        const posts=result.posts.slice(postOffset,postOffset+maxPosts-jobs.length);
+        scopes.push({boardId:board.id,title:board.title,page,postOffset,scannedPosts:posts.length,nextPostOffset:postOffset+posts.length<result.posts.length?postOffset+posts.length:null,mayHaveMore:result.posts.length>postOffset+posts.length||!!result.pagination?.next_page||page<Number(result.pagination?.total_pages||0)||result.posts.length>=20});
+        jobs.push(...posts.map(post=>({boardId:board.id,postId:post.id})));
+        if(jobs.length>=maxPosts)break;
+      }catch(error){warnings.push({source:'boards',boardId:board.id,...errorInfo(error)});}
+    }
+    const items=[];
+    await mapLimit(jobs,3,async job=>{try{const post=await this.boards(course.id,job.boardId,job.postId,1,fresh);items.push(...post.videos);}catch(error){warnings.push({source:'boards',...job,...errorInfo(error)});}});
+    return {items,warnings,scopes,totalBoards:listing.length,pendingBoards:ordered.filter(board=>!scopes.some(scope=>scope.boardId===board.id)).slice(0,100),scannedPosts:jobs.length,truncated:selected.length<listing.length||scopes.length<selected.length||scopes.some(x=>x.mayHaveMore)};
+  }
+  async resolveVideo(resourceId) {
+    const announcement=announcementVideoPattern.exec(resourceId);
+    if(announcement){
+      const [,courseId,postId]=announcement;await this.identity(true);const course=await this.course(courseId,true);
+      const post=await this.get(`/courses/${courseId}/discussion_topics/${postId}`,0,true);
+      if(post.is_announcement!==true)throw fail('현재 열람할 수 있는 공지가 아닙니다.',403);
+      const item=announcementVideos(post,course).find(x=>x.resourceId===resourceId);
+      if(!item)throw fail('공지에서 이 영상을 더 이상 확인할 수 없습니다.',403);
+      return {...await learningVideo(this,item),resourceId,title:item.title,term:course.term,courseName:course.name,sourceUrl:item.url,lectureDate:item.lectureDate,lectureDateSource:item.lectureDateSource};
+    }
+    const board=boardVideoPattern.exec(resourceId);
+    if(!board)return this.resolve(resourceId,'video');
+    const [,courseId,boardId,postId]=board;
+    await this.identity(true);
+    const course=await this.course(courseId,true);
+    const post=await lxGet(this,course.id,'boards',`boards/${boardId}/posts/${postId}`,true);
+    const item=boardVideos(post,course,boardId,postId).find(x=>x.resourceId===resourceId);
+    if(!item)throw fail('게시글에서 이 영상을 더 이상 확인할 수 없습니다.',403);
+    return {...await learningVideo(this,item),resourceId,title:item.title,term:course.term,courseName:course.name,sourceUrl:item.url,lectureDate:item.lectureDate,lectureDateSource:item.lectureDateSource};
+  }
   async resolve(resourceId, format = 'pdf') {
     const match = /^(file|lx):(\d{1,30}):(\d{1,30})$/.exec(resourceId);
     if (!match) throw fail('자료 검색에서 받은 resourceId를 사용하세요.');
@@ -112,6 +157,9 @@ export class Canvas {
       if (link.assignmentId) {
         const assignment = await this.get(`/courses/${course}/assignments/${link.assignmentId}`, 0, true);
         if (!canvasAttachments(assignment.description, course).some(a => a.resourceId === resourceId)) throw fail('과제에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
+      } else if(link.announcementId){
+        const announcement=await this.get(`/courses/${course}/discussion_topics/${link.announcementId}`,0,true);assertReadablePost(announcement);
+        if(announcement.is_announcement!==true||!canvasAttachments(announcement.message,course).some(item=>item.resourceId===resourceId))throw fail('공지에서 이 첨부 자료를 더 이상 확인할 수 없습니다.',403);
       } else {
         const post = await lxGet(this, course, 'boards', `boards/${link.boardId}/posts/${link.postId}`, true);
         if (!(post.attachments || []).some(a => String(a.canvas_file_id) === resource)) throw fail('게시판에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
@@ -119,19 +167,19 @@ export class Canvas {
     }
     if (format === 'video') {
       if (!(file['content-type'] === 'video/mp4' || /\.(mp4|m4v)$/i.test(file.filename || file.display_name || ''))) throw fail('MP4 영상 파일을 선택해 주세요.');
-      safeUrl(file.url, [CANVAS, LEARNINGX, MEDIA, 'https://kr.object.gov-ncloudstorage.com']);
+      safeUrl(file.url, DOWNLOAD_ORIGINS);
       return {...location,resourceId,title:file.display_name||file.filename,sourceUrl:`${CANVAS}/courses/${course}/files/${resource}`,version:file.updated_at?`${file.updated_at}:${file.size??''}`:null,parts:[{url:file.url,format:'mp4'}]};
     }
     if (!(file['content-type'] === 'application/pdf' || /\.pdf$/i.test(file.filename || file.display_name))) throw fail('현재 다운로드·학습은 PDF 자료를 지원합니다.');
-    safeUrl(file.url, [CANVAS, LEARNINGX, 'https://kr.object.gov-ncloudstorage.com']);
+    safeUrl(file.url, DOWNLOAD_ORIGINS);
     return { ...location, resourceId, url: file.url, version: file.updated_at ? `${file.updated_at}:${file.size ?? ''}` : null, title: file.display_name || file.filename, sourceUrl: `${CANVAS}/courses/${course}/files/${resource}` };
   }
   async openDownload(source, headers = {}, timeoutMs = 30000, signal) {
     let url = source.url;
     for (let i = 0; i < 5; i++) {
-      safeUrl(url, [CANVAS, LEARNINGX, MEDIA, 'https://kr.object.gov-ncloudstorage.com']);
+      try{safeUrl(url, DOWNLOAD_ORIGINS);}catch{throw Object.assign(fail('허용되지 않은 미디어 저장소 주소입니다.'),{code:'VIDEO_PROVIDER_UNSUPPORTED'});}
       // Signed storage URLs do not receive the Canvas PAT, even on redirects.
-      const res = await request(this.fetcher, url, { headers, signal }, { redirects: true, timeoutMs });
+      const res = await request(this.fetcher, url, { headers:mediaRequestHeaders(source,headers), signal }, { redirects: true, timeoutMs });
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const next = res.headers.get('location'); await res.body?.cancel();
         if (!next) throw fail('파일 이동 주소가 없습니다.');
@@ -145,7 +193,7 @@ export class Canvas {
     let items;
     if (kind === 'announcements') {
       const rows = await this.get(`/courses/${cid}/discussion_topics?only_announcements=true`, 60000, fresh);
-      items = rows.map(a => ({ id: String(a.id), title: a.title, postedAt: a.posted_at, ...clipped(plain(a.message), itemId ? 30000 : 1800), url: publicUrl(a.html_url) }));
+      items = rows.map(a => {const attachments=canvasAttachments(a.message,cid);for(const attachment of attachments)this.linkedFiles.set(attachment.resourceId,{announcementId:id(a.id)});return { id: String(a.id), title: a.title, postedAt: a.posted_at, attachments,videos:announcementVideos(a,course), ...clipped(plain(a.message), itemId ? 30000 : 1800), url: publicUrl(a.html_url) };});
     } else if (kind === 'assignments') {
       const rows = await this.get(`/courses/${cid}/assignments?include[]=submission`, 60000, fresh);
       let submissions = [], submissionWarning;
@@ -184,18 +232,20 @@ export class Canvas {
     if (itemId) items = items.filter(i => String(i.id ?? i.itemId) === itemId);
     return { course, kind, items: items.slice(offset, offset + 20), total: items.length, nextOffset: offset + 20 < items.length ? offset + 20 : null, timezone: 'Asia/Seoul', checkedAt: new Date().toISOString() };
   }
-  async boards(courseQuery, boardId, postId, page = 1) {
+  async boards(courseQuery, boardId, postId, page = 1, fresh = false) {
     const course = await this.course(courseQuery), cid = course.id;
     if (postId && !boardId) throw fail('게시판 ID를 먼저 선택하세요.');
     let path = 'boards';
     if (boardId) path += `/${id(boardId)}/posts`;
     if (postId) path += `/${id(postId)}`;
     else if (boardId) path += `?page=${page}`;
-    const value = await lxGet(this, cid, 'boards', path);
+    const value = await lxGet(this, cid, 'boards', path, fresh);
     if (!boardId) return { course, boards: value.map(b => ({ id: String(b.id), title: b.title })) };
-    if (!postId) return { course, posts: (value.items || []).map(p => ({ id: String(p.id), title: p.title, postedAt: p.created_at, attachmentCount: p.attachment_count })), pagination: value.pagination };
+    if (!postId) {const raw=value.pagination||{},positive=value=>Number.isSafeInteger(Number(value))&&Number(value)>0?Number(value):undefined;const total=positive(raw.total_pages);return { course, posts: (value.items || []).map(p => ({ id: String(p.id), title: p.title, postedAt: p.created_at, attachmentCount: p.attachment_count })), pagination:{page:positive(raw.page)||positive(raw.current_page)||page,total_pages:total,next_page:positive(raw.next_page)||(total&&page<total?page+1:undefined)} };}
+    assertReadablePost(value);
+    const videos=boardVideos(value,course,boardId,postId);
     const attachments = (value.attachments || []).filter(a => /^\d+$/.test(String(a.canvas_file_id))).map(a => ({ resourceId: `file:${cid}:${a.canvas_file_id}`, title: a.filename }));
     for (const attachment of attachments) this.linkedFiles.set(attachment.resourceId, { boardId, postId });
-    return { course, title: value.title, ...clipped(plain(value.content), 30000), postedAt: value.created_at, url: `${CANVAS}/courses/${cid}`, attachments };
+    return { course, title: value.title, ...clipped(plain(value.content), 30000), postedAt: value.created_at, url: `${CANVAS}/courses/${cid}`, attachments, videos };
   }
 }

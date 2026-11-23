@@ -52,31 +52,31 @@ async function validateSegment(path) {
     throw fail('스트리밍 응답이 영상 또는 음성 구간이 아닙니다.');
   }finally{await file.close();}
 }
-async function load(client,url,signal) {
-  const response=await client.openDownload({url},{},60000,signal);
+async function load(client,url,signal,requestHeaders) {
+  const response=await client.openDownload({url,headers:requestHeaders},{},60000,signal);
   if(response.status!==200){await response.body?.cancel();throw fail('HLS 목록 응답을 확인할 수 없습니다.');}
   const base=videoUrl(response.url||url),text=await boundedText(response);
   return {base,parsed:parseHls(text,base),fingerprint:hash(text)};
 }
-async function selectedTrack(client,url,depth=0,signal) {
+async function selectedTrack(client,url,depth=0,signal,requestHeaders) {
   if(depth>3)throw fail('HLS 목록의 중첩 한도를 초과했습니다.');
-  const loaded=await load(client,url,signal);
+  const loaded=await load(client,url,signal,requestHeaders);
   if(!loaded.parsed.variants)return {video:loaded,audio:null};
   const selected=loaded.parsed.variants.sort((a,b)=>Number(b.BANDWIDTH||0)-Number(a.BANDWIDTH||0))[0];
-  const next=await selectedTrack(client,selected.url,depth+1,signal);
+  const next=await selectedTrack(client,selected.url,depth+1,signal,requestHeaders);
   if(selected.AUDIO) {
     const group=loaded.parsed.audios.filter(x=>x['GROUP-ID']===selected.AUDIO);
     if(!group.length)throw fail('스트리밍의 음성 트랙을 확인할 수 없습니다.');
     const audio=group.find(x=>x.DEFAULT==='YES')||group[0];
-    if(audio.URI){if(next.audio)throw fail('중첩된 별도 음성 트랙은 지원하지 않습니다.');const track=await selectedTrack(client,videoUrl(audio.URI,loaded.base),depth+1,signal);if(track.audio)throw fail('음성 목록 구조를 확인할 수 없습니다.');next.audio=track.video;}
+    if(audio.URI){if(next.audio)throw fail('중첩된 별도 음성 트랙은 지원하지 않습니다.');const track=await selectedTrack(client,videoUrl(audio.URI,loaded.base),depth+1,signal,requestHeaders);if(track.audio)throw fail('음성 목록 구조를 확인할 수 없습니다.');next.audio=track.video;}
   }
   return next;
 }
-async function materialize(client,track,work,prefix,budget,records,priorFiles) {
+async function materialize(client,track,work,prefix,budget,records,priorFiles,requestHeaders) {
   const result=[],files=[];let lastMap;
   const get=async(source,key)=>{
     const previous=await readJson(join(work,key+'.json'))||priorFiles.get(key);
-    const record=await transferVideoAsset(client,source.url,work,key,{previous,version:track.fingerprint,range:source.range,budget,revalidate:priorFiles.has(key)});
+    const record=await transferVideoAsset(client,source.url,work,key,{previous,version:track.fingerprint,range:source.range,budget,revalidate:priorFiles.has(key),requestHeaders});
     const extension=await validateSegment(record.path);
     const filename=key+extension;files.push({...record,name:filename});records.push(record);return filename;
   };
@@ -94,18 +94,18 @@ async function materialize(client,track,work,prefix,budget,records,priorFiles) {
   }
   result.push('#EXT-X-ENDLIST');return {text:result.join('\n')+'\n',files};
 }
-export async function downloadHls(client,url,work,directory,title,budget,previous) {
-  const tracks=await selectedTrack(client,url,0,budget.signal),fingerprint=hash(tracks.video.fingerprint+(tracks.audio?.fingerprint||''));
+export async function downloadHls(client,url,work,directory,title,budget,previous,requestHeaders={}) {
+  const tracks=await selectedTrack(client,url,0,budget.signal,requestHeaders),fingerprint=hash(tracks.video.fingerprint+(tracks.audio?.fingerprint||''));
   if(previous?.fingerprint===fingerprint && previous.checkedAt>Date.now()-120000 && previous.files?.length && (await Promise.all(previous.files.map(validFile))).every(Boolean)) {
     const bytes=previous.files.reduce((n,x)=>n+x.bytes,0);budget.used+=bytes;if(budget.used>budget.max)throw fail('영상 다운로드 용량 한도를 초과했습니다.');
     if(previous.directory===directory)return {...previous,reused:true};
     return publishPackage(previous.files,directory,title,fingerprint,true);
   }
   const priorFiles=new Map((previous?.files||[]).map(file=>[file.name.replace(/\.[^.]+$/,''),file]));
-  const records=[],video=await materialize(client,tracks.video,work,'video',budget,records,priorFiles);
+  const records=[],video=await materialize(client,tracks.video,work,'video',budget,records,priorFiles,requestHeaders);
   const files=[...video.files];
   const playlist=async(name,text)=>{budget.used+=Buffer.byteLength(text);if(budget.used>budget.max)throw fail('영상 다운로드 용량 한도를 초과했습니다.');const path=join(work,name);await writeFile(path,text,{mode:0o600});files.push({name,path,bytes:Buffer.byteLength(text),sha:hash(text)});};
-  if(tracks.audio){const audio=await materialize(client,tracks.audio,work,'audio',budget,records,priorFiles);files.push(...audio.files);await playlist('video.m3u8',video.text);await playlist('audio.m3u8',audio.text);await playlist('index.m3u8','#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="audio"\nvideo.m3u8\n');}
+  if(tracks.audio){const audio=await materialize(client,tracks.audio,work,'audio',budget,records,priorFiles,requestHeaders);files.push(...audio.files);await playlist('video.m3u8',video.text);await playlist('audio.m3u8',audio.text);await playlist('index.m3u8','#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,URI="audio.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,AUDIO="audio"\nvideo.m3u8\n');}
   else await playlist('index.m3u8',video.text);
   if(previous?.directory===directory && previous.files?.length===files.length && files.every(file=>previous.files.some(old=>old.name===file.name&&old.sha===file.sha)) && (await Promise.all(previous.files.map(validFile))).every(Boolean))return {...previous,fingerprint,checkedAt:Date.now(),reused:records.every(x=>x.reused)};
   return publishPackage(files,directory,title,fingerprint,records.every(x=>x.reused));

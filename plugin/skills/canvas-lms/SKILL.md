@@ -70,3 +70,14 @@ description: 고려대학교 Canvas·LearningX의 수강 과목, PDF 강의자�
 - 결과의 실제 파일 경로·크기를 간결하게 보여 준다. 이미 받은 파일은 현재 접근권과 무결성을 확인해 재사용한다. 다운로드가 중단되면 같은 요청으로 재시도한다. MP4는 서버가 검증 가능한 이어받기를 지원할 때만 이어받고, HLS는 검증된 완료 구간을 재사용한다.
 - 영상 다운로드는 출석 처리나 시청 완료가 아니다. 재생·진도·완료 기록 API를 호출하지 않는다. 다운로드만으로 영상 내용을 보거나 들었다고 주장하지 않는다. 자동 자막 추출·영상 요약은 이 도구가 제공하지 않는다.
 - 암호화/DRM·실시간 스트림·외부 영상 제공자·지원하지 않는 학교 CDN은 실패 이유와 원본 LMS 링크를 안내한다. 원본 URL·서명 토큰·쿠키를 사용자에게 노출하거나 임의 외부 다운로더에 전달하지 않는다.
+
+
+## 공지·상태와 게시판 영상의 누락 방지
+
+- 공지는 Canvas `course_info(kind="announcements", fresh=true)`와 LearningX 공지 게시판 `read_boards`를 모두 확인한다. 제목만 읽고 본문을 요약하지 않는다. 긴 본문은 itemId로 상세 조회한다. 게시글의 text가 비어 있어도 videos·attachments를 확인하기 전 “내용 없음”으로 결론내리지 않는다.
+- 출결은 `course_info(kind="attendance", fresh=true)`, 수강 완료 여부는 `course_info(kind="weekly", fresh=true)`, 과제 제출 여부는 `course_info(kind="assignments", fresh=true)`로 조회한다. completed=true/false/null은 수강 완료/미완료/확인 불가이고 출석·지각·결석 판정과 별개다. submitted/missing/unknown/excused/not_required도 서로 구분한다. 조회는 진도·출석·제출 처리를 수행하지 않는다.
+- `find_materials`는 기본으로 게시판 영상도 검색한다. boardSearch.truncated나 pendingBoards가 있으면 전체 검색이 끝난 것이 아니다. scopes의 게시판·페이지 및 read_boards 목록을 확인하고 boardId/boardPage를 지정해 이어서 조회하고, 같은 페이지에서 글 수 제한에 걸렸다면 scopes.nextPostOffset을 boardPostOffset에 넣는다. 검색량 제한으로 일부를 읽지 못했으면 그 범위를 밝힌다.
+- videos의 board:… 또는 announcement:… ID를 그대로 download_video/download_videos에 전달한다. file/lx ID를 게시글에 만들어 붙이거나 iframe URL을 도구 인수에 넣지 않는다. 권한과 원문 첨부는 다운로드 시 재확인한다.
+- 날짜별 일괄 저장은 download_videos(items=[{resourceId,…}], naming="lecture_date", directory=<실제 폴더>)를 사용한다. 원문 제목/본문에서 강의 날짜가 유일하게 확인될 때만 자동 이름을 만든다. 게시 시각으로 대체하지 않는다. 날짜가 모호하면 원문에서 확인하거나 사용자에게 필요한 날짜만 묻고 lectureDate를 명시한다. 여러 원본은 YYYY-MM-DD-01, -02 순서로 저장한다.
+- 배치 응답의 succeeded/failed/unrun, 개별 files의 크기·경로·SHA-256, retryState를 간단히 보고한다. 실패는 실패로 유지하고 해당 ID만 재시도한다. 부분 완료 사본을 전체 완료로 표현하지 않는다.
+- sources의 일부 경로 401/403은 전체 연결 만료가 아니다. 정상인 경로를 계속 활용하고 필요할 때 connection_status로 전체 연결을 확인한다. source/CDN 접근 거절·필요한 원본 헤더 없음·제공자 미지원·후보 서버 실패를 구분하고 토큰·서명 URL·원본 iframe URL을 답변에 노출하지 않는다.

@@ -25,7 +25,7 @@ export async function createDashboard({services,openBrowser=false,ttl=3600000}) 
       if(view==='boards') {
         const board=url.searchParams.get('board')||undefined,post=url.searchParams.get('post')||undefined;
         if([board,post].some(x=>x&&!/^\d{1,30}$/.test(x)))return send(400,{message:'게시판 항목을 확인해 주세요.'},true);
-        return send(200,await client.boards(course,board,post,page),true);
+        return send(200,await client.boards(course,board,post,page,fresh),true);
       }
       if(url.searchParams.has('submissionState') && !['all','missing','submitted','unknown','excused','not_required'].includes(url.searchParams.get('submissionState')))return send(400,{message:'제출 상태를 확인해 주세요.'},true);
       if(!kinds.includes(view))return send(400,{message:'지원하지 않는 메뉴입니다.'},true);

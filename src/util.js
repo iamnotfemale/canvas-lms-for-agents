@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 export const CANVAS = 'https://canvas.korea.ac.kr';
 export const LEARNINGX = 'https://mylms.korea.ac.kr';
 export const MEDIA = 'https://kucom.korea.ac.kr';
+export const DOWNLOAD_ORIGINS = Object.freeze([CANVAS, LEARNINGX, MEDIA, 'https://kr.object.gov-ncloudstorage.com', 'https://korea-cms-object.cdn.gov-ntruss.com']);
 export function id(value) {
   if (!/^\d{1,30}$/.test(String(value))) throw Error('올바른 LMS ID가 아닙니다.');
   return String(value);
@@ -35,7 +36,7 @@ export function clipped(value, limit = 14000) {
   return { text: text.slice(0, limit), truncated: text.length > limit, totalCharacters: text.length };
 }
 export function errorInfo(error) {
-  return { message: error.safe ? error.message : '자료 조회에 실패했습니다. 연결 상태와 학교 접근 권한을 확인하세요.', status: error.status };
+  return { message: error.safe ? error.message : '자료 조회에 실패했습니다. 연결 상태와 학교 접근 권한을 확인하세요.', status: error.status, ...(error.safe && error.code ? {code:error.code}:{}), ...(error.safe && error.details ? {details:error.details}:{}) };
 }
 export function fail(message, status) {
   return Object.assign(Error(message), { safe: true, status });
@@ -102,4 +103,17 @@ export function canvasAttachments(html, course) {
     },
   }, {decodeEntities:true}).end(String(html || ''));
   return [...items.values()];
+}
+
+export function mediaRequestHeaders(source,headers={}) {
+  const result={};
+  for(const [name,value]of Object.entries(headers))if(/^(range|if-range|if-none-match|if-modified-since|accept-encoding)$/i.test(name))result[name]=value;
+  const referer=source.headers?.Referer||source.headers?.referer;
+  if(referer){
+    let url;
+    try {url=safeUrl(referer,[MEDIA]);if(!/^\/em\/[a-zA-Z0-9_-]+\/?$/.test(url.pathname)||url.search)throw Error();}
+    catch {throw Object.assign(fail('검증된 학교 원본 페이지가 필요합니다.'),{code:'VIDEO_INVALID_REFERER'});}
+    result.Referer=url.href;
+  }
+  return result;
 }

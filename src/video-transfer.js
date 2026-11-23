@@ -100,11 +100,13 @@ export async function transferVideoAsset(client,url,work,key,{previous=null,vers
   const record={sourceKey,etag:response.headers.get('etag'),lastModified:response.headers.get('last-modified'),version,total};
   if(resume&&start&&validator(record)!==validator(state)){await response.body.cancel();await unlink(partial).catch(()=>{});await unlink(statePath).catch(()=>{});throw fail('영상이 변경되어 이어받을 수 없습니다. 다시 요청해 주세요.');}
   const file=await open(partial,start?'a':'w',0o600);let bytes=start,checkpoint=start;
+  const digest=createHash('sha256');
   try {
+    if(start)for await(const chunk of createReadStream(partial))digest.update(chunk);
     for await(const chunk of response.body) {
       bytes+=chunk.length;if(budget.used+bytes>budget.max)throw fail('영상 다운로드 용량 한도를 초과했습니다.');
-      await file.writeFile(chunk);
-      if(bytes-checkpoint>=16*1024*1024){await file.sync();await atomicJson(statePath,{...record,bytes,partialSha:await fileHash(partial)});checkpoint=bytes;}
+      await file.writeFile(chunk);digest.update(chunk);
+      if(bytes-checkpoint>=16*1024*1024){await file.sync();await atomicJson(statePath,{...record,bytes,partialSha:digest.copy().digest('hex')});checkpoint=bytes;}
     }
     await file.sync();
     if(!bytes||(total!==null&&bytes!==total))throw fail('영상 다운로드가 중간에 끊겼습니다. 같은 요청을 보내면 안전하게 다시 시도합니다.');
@@ -117,7 +119,7 @@ export async function transferVideoAsset(client,url,work,key,{previous=null,vers
   }finally{await file.close().catch(()=>{});}
   try {if(mp4)await validateMp4(partial);}
   catch(error){await unlink(partial).catch(()=>{});await unlink(statePath).catch(()=>{});throw error;}
-  const sha=await fileHash(partial);budget.used+=bytes;
+  const sha=digest.digest('hex');budget.used+=bytes;
   const result={path:partial,bytes,sha,sourceKey,etag:record.etag,lastModified:record.lastModified,version,reused:false};
   await atomicJson(statePath,{...record,...result,partialSha:sha});
   return result;

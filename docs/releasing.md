@@ -1,11 +1,11 @@
-# 0.3.0 배포
+# 0.4.0 배포
 
 설치 대상은 `plugin/`입니다. 각 사용자는 로컬 Node.js 24+, Git, npm을 준비하고 본인 계정으로 연결합니다. 개발 clone·개발용 node_modules·작성자 설정을 배포하지 않습니다. 개인 토큰 사용 범위와 학교·Canvas 인증 정책은 README를 확인하세요.
 
 ## 배포 전
 
 1. `npm ci`, `npm run build`, `npm run check`, `npm test`를 실행합니다.
-2. package.json, 두 manifest, Claude marketplace, Codex fallback 경로, 서버 버전이 같은지 확인합니다. PDF 엔진 변경 시 두 lockfile을 갱신하고 설치 패키지에 node_modules가 없는지 확인합니다.
+2. package.json, 두 manifest, Claude marketplace, Codex fallback 경로, 서버 버전이 같은지 확인합니다. PDF 전용 패키지 버전은 엔진 변경이 없다면 유지합니다. PDF 엔진 변경 시 두 lockfile을 갱신하고 설치 패키지에 node_modules가 없는지 확인합니다.
 3. 런타임 변경과 `plugin/dist/server.mjs`를 함께 커밋합니다. CI는 번들 재생성 일치와 Linux·Windows 합성 테스트를 검사합니다.
 4. 토큰·사용자 설정·PDF·학생 자료가 커밋에 없는지 확인합니다. 실계정 검증이 필요하면 작성자가 로컬에서 명시적으로 실행하고 결과의 범위를 구분합니다.
 5. 검토한 변경을 기본 브랜치에 반영한 뒤 GitHub에서 버전 태그/릴리스를 발행합니다. 로컬 빌드나 버전 변경만으로 배포가 완료되지는 않습니다.

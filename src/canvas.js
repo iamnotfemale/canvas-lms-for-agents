@@ -1,4 +1,5 @@
 import { CANVAS, LEARNINGX, MEDIA, id, safeUrl, publicUrl, request, Memo, mapLimit, plain, clipped, fail, errorInfo, canvasAttachments } from './util.js';
+import { learningVideo } from './video-source.js';
 import { lxGet, learningItem, learningPdf, attendanceLabel } from './learningx.js';
 
 const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -69,7 +70,7 @@ export class Canvas {
       this.get(`/courses/${cid}/files`, 120000, fresh),
       this.get(`/courses/${cid}/modules`, 120000, fresh).then(ms => mapLimit(ms, 3, async m => {
         const items = await this.get(`/courses/${cid}/modules/${id(m.id)}/items`, 120000, fresh);
-        return items.filter(i => i.type === 'File').map(i => ({ resourceId: `file:${cid}:${id(i.content_id)}`, courseId: cid, title: i.title, module: m.name, week: numbered(m.name, 'week'), pdf: /\.pdf$/i.test(i.title), url: publicUrl(i.html_url) }));
+        return items.filter(i => i.type === 'File').map(i => ({ resourceId: `file:${cid}:${id(i.content_id)}`, courseId: cid, title: i.title, module: m.name, week: numbered(m.name, 'week'), pdf: /\.pdf$/i.test(i.title), video:/\.(mp4|m4v)$/i.test(i.title), url: publicUrl(i.html_url) }));
       })).then(ms => ms.flat()),
       this.weekly(cid, fresh),
     ]);
@@ -77,6 +78,7 @@ export class Canvas {
     const found = new Map();
     if (files.status === 'fulfilled') for (const f of files.value) found.set(`file:${cid}:${id(f.id)}`, {
       resourceId: `file:${cid}:${f.id}`, courseId: cid, title: f.display_name || f.filename,
+      video: f['content-type'] === 'video/mp4' || /\.(mp4|m4v)$/i.test(f.filename || ''),
       pdf: f['content-type'] === 'application/pdf' || /\.pdf$/i.test(f.filename), locked: !!(f.locked_for_user || f.hidden_for_user),
       url: `${CANVAS}/courses/${cid}/files/${f.id}`,
     });
@@ -87,7 +89,8 @@ export class Canvas {
     const results = filterMaterials([...found.values()], filters);
     return { course, items: results.slice(offset, offset + 100), total: results.length, nextOffset: offset + 100 < results.length ? offset + 100 : null, warnings, checkedAt: new Date().toISOString() };
   }
-  async resolve(resourceId) {
+  async resolveVideo(resourceId) { return this.resolve(resourceId, 'video'); }
+  async resolve(resourceId, format = 'pdf') {
     const match = /^(file|lx):(\d{1,30}):(\d{1,30})$/.exec(resourceId);
     if (!match) throw fail('자료 검색에서 받은 resourceId를 사용하세요.');
     const [, kind, course, resource] = match;
@@ -97,6 +100,7 @@ export class Canvas {
     if (kind === 'lx') {
       const item = (await this.weekly(course, true)).find(i => i.itemId === resource);
       if (!item || item.locked) throw fail('현재 열람할 수 없는 주차학습 자료입니다.', 403);
+      if (format === 'video') return {...await learningVideo(this,item),...location,week:item.week,resourceId,title:item.title,sourceUrl:item.url};
       return { ...await learningPdf(this, item), ...location, resourceId, sourceUrl: item.url };
     }
     const file = await this.get(`/courses/${course}/files/${resource}`, 0, true);
@@ -113,16 +117,21 @@ export class Canvas {
         if (!(post.attachments || []).some(a => String(a.canvas_file_id) === resource)) throw fail('게시판에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
       }
     }
+    if (format === 'video') {
+      if (!(file['content-type'] === 'video/mp4' || /\.(mp4|m4v)$/i.test(file.filename || file.display_name || ''))) throw fail('MP4 영상 파일을 선택해 주세요.');
+      safeUrl(file.url, [CANVAS, LEARNINGX, MEDIA, 'https://kr.object.gov-ncloudstorage.com']);
+      return {...location,resourceId,title:file.display_name||file.filename,sourceUrl:`${CANVAS}/courses/${course}/files/${resource}`,version:file.updated_at?`${file.updated_at}:${file.size??''}`:null,parts:[{url:file.url,format:'mp4'}]};
+    }
     if (!(file['content-type'] === 'application/pdf' || /\.pdf$/i.test(file.filename || file.display_name))) throw fail('현재 다운로드·학습은 PDF 자료를 지원합니다.');
     safeUrl(file.url, [CANVAS, LEARNINGX, 'https://kr.object.gov-ncloudstorage.com']);
     return { ...location, resourceId, url: file.url, version: file.updated_at ? `${file.updated_at}:${file.size ?? ''}` : null, title: file.display_name || file.filename, sourceUrl: `${CANVAS}/courses/${course}/files/${resource}` };
   }
-  async openDownload(source, headers = {}) {
+  async openDownload(source, headers = {}, timeoutMs = 30000, signal) {
     let url = source.url;
     for (let i = 0; i < 5; i++) {
       safeUrl(url, [CANVAS, LEARNINGX, MEDIA, 'https://kr.object.gov-ncloudstorage.com']);
       // Signed storage URLs do not receive the Canvas PAT, even on redirects.
-      const res = await request(this.fetcher, url, { headers }, { redirects: true });
+      const res = await request(this.fetcher, url, { headers, signal }, { redirects: true, timeoutMs });
       if ([301, 302, 303, 307, 308].includes(res.status)) {
         const next = res.headers.get('location'); await res.body?.cancel();
         if (!next) throw fail('파일 이동 주소가 없습니다.');

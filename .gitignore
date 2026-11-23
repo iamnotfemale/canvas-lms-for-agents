@@ -9,3 +9,7 @@ config.json
 *.pdf
 *.png
 *.part
+*.mp4
+*.m4v
+*.m3u8
+*.m4s

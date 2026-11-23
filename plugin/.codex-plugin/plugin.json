@@ -1,7 +1,7 @@
 {
   "name": "canvas-lms-for-agents",
-  "version": "0.3.0",
-  "description": "고려대 Canvas·LearningX 자료 학습, 공지·과제·출석 조회",
+  "version": "0.4.0",
+  "description": "고려대 Canvas·LearningX 자료 학습, 영상 다운로드, 공지·과제·출석 조회",
   "author": {
     "name": "iamnotfemale"
   },
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Canvas LMS for Agents",
     "shortDescription": "내 수업의 공지·과제·자료를 대화로 바로",
-    "longDescription": "PDF 전체를 로컬에 한 번 내려받아 챕터별로 학습하고, Canvas·LearningX의 공지·과제·출석·게시판을 조회합니다.",
+    "longDescription": "PDF 학습과 강의 영상 저장, Canvas·LearningX의 공지·과제·출석·주차학습·게시판 조회를 지원합니다.",
     "developerName": "iamnotfemale",
     "category": "Productivity",
     "capabilities": [

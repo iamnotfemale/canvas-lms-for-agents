@@ -17,7 +17,7 @@ test('SDK tool calls index full document, return images and reject invalid input
   const host = new Client({ name: 'test', version: '1' });
   const [a, b] = InMemoryTransport.createLinkedPair(); await server.connect(a); await host.connect(b);
   t.after(async () => { await host.close(); await server.close(); });
-  assert.equal((await host.listTools()).tools.length, 13);
+  assert.equal((await host.listTools()).tools.length, 14);
   const indexed = await host.callTool({ name: 'index_pdf', arguments: { resourceId: 'file:1:3' } });
   assert.equal(indexed.isError, undefined); assert.equal(JSON.parse(indexed.content[0].text).totalPages, 2);
   const rendered = await host.callTool({ name: 'render_pdf_page', arguments: { resourceId: 'file:1:3', page: 2 } });
@@ -33,7 +33,7 @@ test('real stdio launcher initializes without credentials and offers local setup
   const transport = new StdioClientTransport({ command: process.execPath, args: ['plugin/scripts/launch.mjs'], env, stderr: 'pipe' });
   const host = new Client({ name: 'stdio-test', version: '1' });
   t.after(() => host.close()); await host.connect(transport);
-  assert.equal((await host.listTools()).tools.length, 13);
+  assert.equal((await host.listTools()).tools.length, 14);
   const result = await host.callTool({ name: 'connection_status', arguments: {} });
   assert.equal(result.isError, undefined); assert.equal(JSON.parse(result.content[0].text).setupRequired, true);
 });
@@ -49,7 +49,7 @@ for (const kind of ['claude', 'codex', 'codex-legacy']) test(`copied ${kind} plu
   const transport = new StdioClientTransport({ ...config, command: process.execPath, cwd: root, env, stderr: 'pipe' });
   const host = new Client({ name: 'manifest-test', version: '1' });
   t.after(async () => { await host.close(); await rm(root, { recursive: true, force: true }); });
-  await host.connect(transport); assert.equal((await host.listTools()).tools.length, 13);
+  await host.connect(transport); assert.equal((await host.listTools()).tools.length, 14);
   const status = await host.callTool({ name: 'connection_status', arguments: {} });
   assert.equal(status.isError, undefined); const result = JSON.parse(status.content[0].text);
   assert.equal(result.setupRequired, true);

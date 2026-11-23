@@ -73,12 +73,12 @@ export async function lxGet(client, course, kind, suffix, fresh = false) {
 export const attendanceLabel = (status, enabled) => enabled === false ? '출결 대상 아님' : ({ attendance: '출석', late: '지각', absent: '결석', excused: '공결', none: '미처리' }[status] || '확인 불가');
 export function learningItem(raw, course, module) {
   const data = raw.content_data || {}, media = data.item_content_data || {};
-  return {
+  const item = {
     resourceId: raw.content_type === 'attachment' ? `file:${course}:${id(raw.content_id)}` : `lx:${course}:${id(raw.module_item_id)}`,
     courseId: course, itemId: String(raw.module_item_id), title: raw.title || media.file_name || '제목 없음',
     module: module.title, week: module.week_position ?? null,
     pdf: media.content_type === 'pdf' || /\.pdf$/i.test(media.file_name || raw.title || ''),
-    video: ['mp4', 'readystream', 'video', 'screen', 'youtube'].includes(media.content_type),
+    video: ['movie','mp4','readystream','video','screen','screenlecture','lecturecam','everlec','webstudio','youtube'].includes(media.content_type),
     locked: raw.published === false || data.published === false || data.opened === false || data.locked_for_user === true,
     dueAt: data.due_at || null, unlockAt: data.unlock_at || null,
     completed: raw.completion_determinable && typeof raw.completed === 'boolean' ? raw.completed : null,
@@ -86,6 +86,8 @@ export function learningItem(raw, course, module) {
     description: plain(data.description || ''), viewer: media.view_url,
     url: `${CANVAS}/courses/${course}/modules/items/${raw.module_item_id}`,
   };
+  Object.defineProperty(item, 'videoMetadata', {value:media});
+  return item;
 }
 export async function learningPdf(client, item) {
   if (item.locked || !item.pdf) throw fail('열람 가능한 PDF가 아닙니다.', 403);

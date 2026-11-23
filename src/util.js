@@ -62,11 +62,11 @@ export class Memo {
     this.pending.set(key, job); return job;
   }
 }
-export async function request(fetcher, url, options = {}, { retries = 1, redirects = false } = {}) {
+export async function request(fetcher, url, options = {}, { retries = 1, redirects = false, timeoutMs = 30000 } = {}) {
   for (let attempt = 0; ; attempt++) {
     let response;
-    try { response = await fetcher(url, { ...options, redirect: 'manual', signal: AbortSignal.timeout(30000) }); }
-    catch { if (attempt < retries) { await sleep(250); continue; } throw fail('학교 서버 연결 시간이 초과되었거나 연결할 수 없습니다.'); }
+    try { response = await fetcher(url, { ...options, redirect: 'manual', signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) }); }
+    catch { if (options.signal?.aborted) throw fail('다운로드 요청이 취소되었습니다.'); if (attempt < retries) { await sleep(250); continue; } throw fail('학교 서버 연결 시간이 초과되었거나 연결할 수 없습니다.'); }
     if ((response.status === 429 || response.status >= 500) && attempt < retries) {
       const delay = Math.min(2000, Math.max(250, Number(response.headers.get('retry-after')) * 1000 || 250));
       await response.body?.cancel(); await sleep(delay); continue;

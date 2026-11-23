@@ -110,3 +110,30 @@ test('link-only board files require a fresh readable attachment; locks still den
   attached = true; locked = true; await assert.rejects(client.resolve('file:1:3'), /잠긴/);
   locked = false; read = false; await assert.rejects(client.resolve('file:1:3'), /잠긴/);
 });
+
+
+test('assignment filters apply before pagination and preserve unknown, excused and offline states',async()=>{
+ const rows=Array.from({length:25},(_,i)=>({id:i+1,name:`Work ${i+1}`,description:i===0?'<a href="/courses/1/files/3/download?download_frd=1">과제.pdf</a><a href="https://evil.example/files/4">bad</a>':'',submission:{workflow_state:i<22?'submitted':'unsubmitted'},submission_types:['online_upload']}));
+ rows.push({id:30,name:'Unknown'},{id:31,name:'Offline',submission:{workflow_state:'unsubmitted'},submission_types:['on_paper']},{id:32,name:'Excused',submission:{excused:true}});
+ const client=new Canvas('fake',{fetcher:async url=>new URL(url).pathname==='/api/v1/courses'?jsonResponse([{id:1,name:'미적분학'}]):new URL(url).pathname.endsWith('/assignments')?jsonResponse(rows):jsonResponse({},403)});
+ const missing=await client.overview('미적','assignments',false,0,undefined,'missing');
+ assert.equal(missing.total,3);assert.ok(missing.items.every(i=>i.submissionState==='missing'));
+ assert.equal((await client.overview('1','assignments',false,0,undefined,'unknown')).total,1);
+ assert.equal((await client.overview('1','assignments',false,0,undefined,'not_required')).total,1);
+ assert.equal((await client.overview('1','assignments',false,0,undefined,'excused')).total,1);
+ const first=await client.overview('1','assignments',false,0,'1');assert.deepEqual(first.items[0].attachments,[{resourceId:'file:1:3',title:'과제.pdf'}]);
+});
+test('link-only assignment attachment requires fresh assignment access and current link',async()=>{
+ let attached=true,locked=false;
+ const client=new Canvas('fake',{fetcher:async url=>{const p=new URL(url).pathname;
+ if(p.endsWith('/users/self'))return jsonResponse({id:10});
+ if(p==='/api/v1/courses')return jsonResponse([{id:1,name:'미적분'}]);
+ const row={id:9,name:'과제',submission:{workflow_state:'unsubmitted'},description:attached?'<a href="/courses/1/files/3">과제.pdf</a>':''};
+ if(p.endsWith('/assignments'))return jsonResponse([row]);
+ if(p.endsWith('/assignments/9'))return jsonResponse(row);
+ if(p.endsWith('/files/3'))return jsonResponse({hidden_for_user:true,locked_for_user:locked,filename:'과제.pdf',url:CANVAS+'/files/3/download'});
+ throw Error('Unexpected request');}});
+ await assert.rejects(client.resolve('file:1:3'),/첨부 목록/);await client.overview('미적','assignments');
+ assert.ok((await client.resolve('file:1:3')).url);
+ attached=false;await assert.rejects(client.resolve('file:1:3'),/더 이상/);attached=true;locked=true;await assert.rejects(client.resolve('file:1:3'),/잠긴/);
+});

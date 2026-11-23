@@ -7,11 +7,15 @@ import { FileCache } from './cache.js';
 import { readPdf, renderPage, indexPdf } from './pdf.js';
 import { errorInfo, fail } from './util.js';
 import { beginSetup } from './onboarding.js';
+import { createDashboard } from './dashboard.js';
+import { savePdfToFolder } from './library.js';
 
 const text = value => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
 export function createServer({ service, clientFactory = config => new Canvas(config.token, { aliases: config.aliases }) } = {}) {
-  const server = new McpServer({ name: 'canvas-lms-for-agents', version: '0.2.0' });
-  let active = service;
+  const server = new McpServer({ name: 'canvas-lms-for-agents', version: '0.3.0' });
+  let active = service, dashboard;
+  const close = server.close.bind(server);
+  server.close = async () => { dashboard?.close(); await close(); };
   async function services() {
     if (!active) {
       let config;
@@ -54,6 +58,12 @@ export function createServer({ service, clientFactory = config => new Canvas(con
     documentNumbers: z.array(z.number().int().min(0).max(1000)).max(20).optional(), fresh, offset: z.number().int().min(0).default(0),
   }, async ({ course, fresh, offset, ...filters }, { client }) => text(await client.materials(course, filters, fresh, offset)));
   tool('download_pdf', '요청한 PDF 전체를 로컬에 저장하고 절대 경로를 반환합니다. 계정별 내용 해시 캐시로 중복 다운로드를 방지하며 매번 LMS 권한을 확인합니다.', { resourceId: resource }, async (a, { client, cache }) => text(await cache.acquire(client, a.resourceId)), true);
+  tool('save_pdf_to_folder', 'PDF를 사용자가 지정한 폴더에 실제로 복사하고 확인된 절대 경로를 반환합니다. 기존 파일·필기는 덮어쓰지 않습니다. 폴더를 찾으라는 요청은 호스트 파일 도구로 실제 폴더를 먼저 확인하고 directory에 절대 경로를 넣으세요.', {resourceId:resource,directory:z.string().min(1).max(4096)}, async (a,{client,cache}) => text(await cache.withPdf(client,a.resourceId,file => savePdfToFolder(file,a.directory))), true);
+  tool('open_dashboard', '사용자가 화면으로 보고 싶을 때 로컬 수업 대시보드를 엽니다. 과목·공지·과제·주차학습·게시판을 클릭해 조회합니다. 일반 질문에는 course_info로 바로 답하고 이 화면을 강제로 열지 마세요.', {}, async () => {
+    dashboard?.close();
+    dashboard = await createDashboard({services,openBrowser:process.env.CANVAS_AGENT_NO_BROWSER !== '1'});
+    return text({url:dashboard.url,expiresAt:dashboard.expiresAt,message:'이 컴퓨터의 브라우저에서 여는 조회 전용 화면입니다. 공유 링크가 아닙니다.'});
+  }, true);
   tool('index_pdf', 'PDF 전체를 내려받아 모든 페이지의 텍스트를 로컬 Markdown으로 추출합니다. 챕터별 학습 시작에 사용. 페이지별 짧은 미리보기와 전체 텍스트 경로를 반환하며 같은 내용은 재추출하지 않습니다.', { resourceId: resource }, async (a, { client, cache }) => text(await cache.withPdf(client, a.resourceId, indexPdf)), true);
   tool('read_pdf', '로컬 PDF의 1~8쪽을 읽고 북마크와 실제 PDF 페이지 번호를 반환합니다. 전체 문서 준비는 index_pdf, 그림·표·수식 확인은 render_pdf_page를 사용합니다.', {
     resourceId: resource, startPage: z.number().int().min(1).default(1), endPage: z.number().int().min(1).optional(),
@@ -66,8 +76,9 @@ export function createServer({ service, clientFactory = config => new Canvas(con
   }, true);
   tool('course_info', '공지 요약·과제/퀴즈 제출 상태·출결·주차학습·강의계획·일정을 조회합니다. 출결은 LearningX 원본 상태이며 시청이나 출석 처리는 하지 않습니다. 시간은 Asia/Seoul로 표시하세요.', {
     course, kind: z.enum(['announcements', 'assignments', 'attendance', 'weekly', 'syllabus', 'calendar']), fresh,
+    submissionState: z.enum(['all','missing','submitted','unknown','excused','not_required']).optional().describe('과제만: 미제출=missing, 제출 완료=submitted. 필터는 전체 목록에 적용한 뒤 페이지를 나눕니다.'),
     offset: z.number().int().min(0).default(0), itemId: z.string().regex(/^\d{1,30}$/).optional().describe('목록에서 본 항목 ID. 공지·과제의 긴 본문을 자세히 읽을 때 지정.'),
-  }, async (a, { client }) => text(await client.overview(a.course, a.kind, a.fresh, a.offset, a.itemId)));
+  }, async (a, { client }) => text(await client.overview(a.course, a.kind, a.fresh, a.offset, a.itemId, a.submissionState)));
   tool('read_boards', 'LearningX 게시판 목록, 글 목록 또는 글 본문·첨부 자료를 읽습니다. 공지가 Canvas 공지에 없으면 학교 게시판도 확인하세요.', {
     course, boardId: z.string().regex(/^\d{1,30}$/).optional(), postId: z.string().regex(/^\d{1,30}$/).optional(), page: z.number().int().min(1).max(10000).default(1),
   }, async (a, { client }) => text(await client.boards(a.course, a.boardId, a.postId, a.page)));

@@ -15,6 +15,7 @@ for (const path of ['plugin/.codex-plugin/plugin.json', 'plugin/.claude-plugin/p
   assert.equal(manifest.version, pkg.version);
   assert.equal(manifest.name, pkg.name);
   await readFile(`plugin/${manifest.mcpServers}`);
+  for (const asset of [manifest.interface?.logo,manifest.interface?.composerIcon].filter(Boolean)) await readFile(`plugin/${asset}`);
 }
 for (const path of ['plugin/.mcp.json', '.agents/plugins/marketplace.json', '.claude-plugin/marketplace.json']) JSON.parse(await readFile(path, 'utf8'));
 const codexMcp = JSON.parse(await readFile('plugin/.mcp.codex.json', 'utf8'));

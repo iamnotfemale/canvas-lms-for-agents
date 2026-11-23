@@ -1,4 +1,4 @@
-import { CANVAS, LEARNINGX, MEDIA, id, safeUrl, publicUrl, request, Memo, mapLimit, plain, clipped, fail, errorInfo } from './util.js';
+import { CANVAS, LEARNINGX, MEDIA, id, safeUrl, publicUrl, request, Memo, mapLimit, plain, clipped, fail, errorInfo, canvasAttachments } from './util.js';
 import { lxGet, learningItem, learningPdf, attendanceLabel } from './learningx.js';
 
 const normalize = value => String(value || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -105,8 +105,13 @@ export class Canvas {
       const link = this.linkedFiles.get(resourceId);
       if (!link) throw fail('게시판 글의 첨부 목록을 먼저 조회해 자료 접근 경로를 확인하세요.', 403);
       // Hidden means link-only; verify the original readable post again, never bypass a lock.
-      const post = await lxGet(this, course, 'boards', `boards/${link.boardId}/posts/${link.postId}`, true);
-      if (!(post.attachments || []).some(a => String(a.canvas_file_id) === resource)) throw fail('게시판에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
+      if (link.assignmentId) {
+        const assignment = await this.get(`/courses/${course}/assignments/${link.assignmentId}`, 0, true);
+        if (!canvasAttachments(assignment.description, course).some(a => a.resourceId === resourceId)) throw fail('과제에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
+      } else {
+        const post = await lxGet(this, course, 'boards', `boards/${link.boardId}/posts/${link.postId}`, true);
+        if (!(post.attachments || []).some(a => String(a.canvas_file_id) === resource)) throw fail('게시판에서 이 첨부 자료를 더 이상 확인할 수 없습니다.', 403);
+      }
     }
     if (!(file['content-type'] === 'application/pdf' || /\.pdf$/i.test(file.filename || file.display_name))) throw fail('현재 다운로드·학습은 PDF 자료를 지원합니다.');
     safeUrl(file.url, [CANVAS, LEARNINGX, 'https://kr.object.gov-ncloudstorage.com']);
@@ -126,7 +131,7 @@ export class Canvas {
     }
     throw fail('파일 이동 횟수를 초과했습니다.');
   }
-  async overview(courseQuery, kind, fresh = false, offset = 0, itemId) {
+  async overview(courseQuery, kind, fresh = false, offset = 0, itemId, submissionState) {
     const course = await this.course(courseQuery), cid = course.id;
     let items;
     if (kind === 'announcements') {
@@ -141,8 +146,12 @@ export class Canvas {
       }
       items = rows.map(a => {
         const s = a.submission || submissions.find(s => String(s.assignment_id) === String(a.id));
+        const state = !s ? 'unknown' : s.excused ? 'excused' : s.submitted_at || ['submitted','graded','pending_review'].includes(s.workflow_state) ? 'submitted' : ['none','not_graded','on_paper'].some(type => a.submission_types?.includes(type)) ? 'not_required' : s.workflow_state === 'unsubmitted' ? 'missing' : 'unknown';
+        const attachments = canvasAttachments(a.description, cid);
+        for (const attachment of attachments) this.linkedFiles.set(attachment.resourceId, {assignmentId:id(a.id)});
         return { id: String(a.id), title: a.name, ...clipped(plain(a.description), itemId ? 30000 : 1800), dueAt: a.due_at, unlockAt: a.unlock_at, lockAt: a.lock_at,
-          status: !s ? '확인 불가' : s.excused ? '면제' : s.submitted_at || ['submitted', 'graded', 'pending_review'].includes(s.workflow_state) ? '제출/채점 완료' : '미제출',
+          status: {unknown:'확인 불가',excused:'면제',submitted:'제출 완료',missing:'미제출',not_required:'온라인 제출 대상 아님'}[state],
+          submissionState:state, submitted:state === 'submitted' ? true : state === 'missing' ? false : undefined, attachments,
           score: s?.score ?? null, points: a.points_possible, quiz: !!a.is_quiz_assignment, url: publicUrl(a.html_url), submissionWarning: !s ? submissionWarning : undefined };
       });
     } else if (kind === 'attendance') {
@@ -161,6 +170,8 @@ export class Canvas {
       const rows = await this.get(`/calendar_events?context_codes[]=course_${cid}&all_events=true`, 60000, fresh);
       items = rows.map(r => ({ id: String(r.id), title: r.title, startAt: r.start_at, endAt: r.end_at, ...clipped(plain(r.description)), url: publicUrl(r.html_url) }));
     } else throw fail('지원하지 않는 조회 종류입니다.');
+    if (kind === 'assignments' && submissionState && submissionState !== 'all') items = items.filter(i => i.submissionState === submissionState);
+    if (kind === 'announcements') items.sort((a,b) => (Date.parse(b.postedAt)||0) - (Date.parse(a.postedAt)||0));
     if (itemId) items = items.filter(i => String(i.id ?? i.itemId) === itemId);
     return { course, kind, items: items.slice(offset, offset + 20), total: items.length, nextOffset: offset + 20 < items.length ? offset + 20 : null, timezone: 'Asia/Seoul', checkedAt: new Date().toISOString() };
   }

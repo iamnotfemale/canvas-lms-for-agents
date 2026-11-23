@@ -38,3 +38,17 @@ test('concurrent apps share the same named copy; source path characters are harm
   assert.equal(safeName('../CON?.pdf'),'.._CON_.pdf'); assert.equal(safeName('CON'),'_CON'); assert.equal(safeName('..'),'자료');
   assert.equal(courseFolder('262R (서울-학부)미적분학II(CALCULUS II)-01분반'),'미적분학II - 01분반');
 });
+
+
+ test('explicit folder export reuses identical files, preserves edits and rechecks revoked access', async t => {
+  const {root,client,cache}=await fixture(t);
+  const {savePdfToFolder}=await import('../src/library.js');
+  const directory=join(root,'chosen','과제');
+  const first=await cache.withPdf(client,'file:1:3',file=>savePdfToFolder(file,directory));
+  assert.ok(first.path.startsWith(directory));assert.ok((await readFile(first.path)).length);
+  const same=await cache.withPdf(client,'file:1:3',file=>savePdfToFolder(file,directory));assert.equal(same.reused,true);
+  await writeFile(first.path,'my notes');
+  const next=await cache.withPdf(client,'file:1:3',file=>savePdfToFolder(file,directory));assert.notEqual(next.path,first.path);assert.equal(await readFile(first.path,'utf8'),'my notes');
+  client.allowed=false;await assert.rejects(cache.withPdf(client,'file:1:3',file=>savePdfToFolder(file,directory)),/revoked/);
+  await assert.rejects(savePdfToFolder({path:first.path},'relative'),/절대 경로/);
+});

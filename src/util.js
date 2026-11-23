@@ -76,3 +76,30 @@ export async function request(fetcher, url, options = {}, { retries = 1, redirec
     throw fail(response.status === 401 ? '학교 인증 또는 이 자료의 권한을 확인할 수 없습니다. 연결 진단을 실행하세요.' : `학교 자료 조회 실패 (HTTP ${response.status}).`, response.status);
   }
 }
+
+// Extract school file references, never signed storage URLs or external links.
+export function canvasAttachments(html, course) {
+  const items = new Map();
+  let current;
+  new Parser({
+    onopentag(name, attrs) {
+      if (name !== 'a') return;
+      current = undefined;
+      try {
+        const url = new URL(attrs.href || attrs['data-api-endpoint'], CANVAS);
+        safeUrl(url.href, [CANVAS]);
+        const match = /^\/(?:api\/v1\/)?(?:courses\/(\d+)\/)?files\/(\d+)(?:\/(?:download|preview))?\/?$/.exec(url.pathname);
+        if (!match || (match[1] && match[1] !== String(course))) return;
+        current = {resourceId:`file:${course}:${match[2]}`, title:''};
+      } catch { /* Non-file links stay in the original LMS page. */ }
+    },
+    ontext(text) { if (current) current.title += text; },
+    onclosetag(name) {
+      if (name === 'a' && current) {
+        current.title = current.title.trim() || '첨부 자료';
+        items.set(current.resourceId, current); current = undefined;
+      }
+    },
+  }, {decodeEntities:true}).end(String(html || ''));
+  return [...items.values()];
+}
